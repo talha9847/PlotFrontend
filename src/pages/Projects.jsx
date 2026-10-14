@@ -75,7 +75,7 @@ export default function Projects() {
 
     try {
       const [projectsResponse, statsResponse] = await Promise.all([
-        axios.get("/api/projects/", {
+        axios.get("/api/projects/getProjects", {
           withCredentials: true,
         }),
         axios.get("/api/projects/stats", {
