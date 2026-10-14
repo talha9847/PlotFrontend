@@ -1,14 +1,16 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import {
+  AlertCircle,
   ArrowLeft,
-  ArrowUpRight,
+  ArrowRight,
   Eye,
   EyeOff,
-  LockKeyhole,
+  Lock,
+  Mail,
   ShieldCheck,
-  Sparkles,
+  TrendingUp,
 } from "lucide-react";
-import { Link, useNavigate } from "react-router-dom";
 import Brand from "../components/common/Brand";
 import Button from "../components/common/Button";
 import Input from "../components/common/Input";
@@ -16,264 +18,288 @@ import { useToast } from "../components/common/Toast";
 
 const DEMO_EMAIL = "admin@terravista.example";
 const DEMO_PASSWORD = "demo1234";
+const DISPLAY = { fontFamily: "'Fraunces', Georgia, serif" };
+const GOLD = "#e4c48a";
+
+// Decorative mini layout: a = available, b = booked, s = sold
+const LAYOUT = "aabsaabsbaassabaasbbaaas".split("");
+const DOT = { a: "#6fcf9f", b: GOLD, s: "rgba(255,255,255,.28)" };
 
 export default function LoginPage() {
   const navigate = useNavigate();
   const toast = useToast();
-  const [showPassword, setShowPassword] = useState(false);
-  const [form, setForm] = useState({
-    email: DEMO_EMAIL,
-    password: DEMO_PASSWORD,
-  });
+  const [show, setShow] = useState(false);
+  const [remember, setRemember] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [form, setForm] = useState({ email: "", password: "" });
+
+  const cells = useMemo(() => LAYOUT.map((t, i) => ({ t, i })), []);
+  const upd = (k, v) => {
+    setForm((f) => ({ ...f, [k]: v }));
+    setError("");
+  };
 
   function handleSubmit(event) {
     event.preventDefault();
-    toast("Demo preview only — authentication is not connected.", "info");
-    navigate("/admin");
+    if (!form.email.trim() || !form.password)
+      return setError("Please enter your email and password.");
+    setLoading(true);
+    // Demo only: replace this timeout with your real login request (POST /api/auth/login).
+    setTimeout(() => {
+      toast(
+        "Welcome back. Demo preview, authentication is not connected.",
+        "info",
+      );
+      navigate("/admin");
+    }, 900);
   }
 
   return (
-    <main className="relative min-h-screen overflow-hidden bg-[#f4f6f1] px-4 py-5 text-ink sm:px-6 sm:py-8">
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute -left-32 -top-32 h-80 w-80 rounded-full bg-brand-100/70 blur-3xl"
-      />
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute -bottom-40 -right-24 h-96 w-96 rounded-full bg-amber-100/50 blur-3xl"
-      />
+    <main
+      className="min-h-screen bg-[#fafaf6] lg:grid lg:grid-cols-[1.05fr_.95fr]"
+      style={{ fontFamily: "'Inter', system-ui, sans-serif" }}
+    >
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;1,9..144,500&family=Inter:wght@400;500;600;700;800&display=swap');
+      @keyframes kb{from{transform:scale(1)}to{transform:scale(1.1)}}
+      @keyframes pop{from{opacity:0;transform:scale(.4)}to{opacity:1;transform:scale(1)}}
+      @keyframes up{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}
+      @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+      @keyframes ring{0%{transform:scale(.8);opacity:.5}100%{transform:scale(1.6);opacity:0}}`}</style>
 
-      <div className="relative mx-auto flex min-h-[calc(100vh-2.5rem)] w-full max-w-[1180px] flex-col">
-        <header className="flex items-center justify-between px-1 py-2 sm:px-3">
-          <Brand />
-          <Link
-            to="/"
-            className="inline-flex items-center gap-2 rounded-full border border-black/[0.07] bg-white/70 px-4 py-2.5 text-xs font-semibold text-slate-600 shadow-sm transition hover:border-brand-200 hover:text-brand-800"
+      {/* Brand panel */}
+      <section className="relative hidden min-h-screen flex-col justify-between overflow-hidden bg-[#062a20] p-10 text-white lg:flex xl:p-14">
+        <img
+          src="https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=1800&q=80"
+          alt=""
+          aria-hidden="true"
+          className="absolute inset-0 h-full w-full object-cover opacity-40"
+          style={{ animation: "kb 24s ease-out forwards" }}
+        />
+        <div
+          className="absolute inset-0"
+          style={{
+            background:
+              "linear-gradient(135deg,rgba(4,31,24,.95),rgba(11,61,46,.7) 55%,rgba(4,31,24,.95))",
+          }}
+        />
+        <div
+          className="absolute -right-24 top-1/3 h-72 w-72 rounded-full border border-white/10"
+          style={{ animation: "ring 5s ease-out infinite" }}
+        />
+        <div
+          className="absolute -right-24 top-1/3 h-72 w-72 rounded-full border border-white/10"
+          style={{ animation: "ring 5s ease-out 2.5s infinite" }}
+        />
+
+        <div className="relative z-10">
+          <Brand light />
+        </div>
+
+        <div className="relative z-10 max-w-xl">
+          <p
+            className="text-[11px] font-extrabold uppercase tracking-[0.22em]"
+            style={{ color: GOLD }}
           >
-            <ArrowLeft size={14} />
-            <span className="hidden sm:inline">Back to website</span>
-            <span className="sm:hidden">Back</span>
-          </Link>
-        </header>
+            The Plotwise workspace
+          </p>
+          <h1
+            className="mt-5 font-semibold leading-[1.02] tracking-[-0.03em]"
+            style={{ ...DISPLAY, fontSize: "clamp(2.8rem,4.6vw,4.4rem)" }}
+          >
+            Every plot. Every detail.
+            <br />
+            <span className="italic" style={{ color: GOLD }}>
+              In one place.
+            </span>
+          </h1>
+          <p className="mt-6 max-w-md text-base leading-7 text-white/70">
+            Manage plot inventory, customer bookings and payment schedules from
+            one considered workspace.
+          </p>
 
-        <section className="my-auto grid overflow-hidden rounded-[28px] border border-white/80 bg-white shadow-[0_24px_90px_-36px_rgba(24,50,35,0.25)] lg:min-h-[660px] lg:grid-cols-[1.02fr_0.98fr]">
-          {/* Visual panel */}
-          <div className="relative hidden min-h-[660px] overflow-hidden bg-[#163d2d] p-10 text-white lg:flex lg:flex-col lg:justify-between xl:p-12">
-            <div
-              aria-hidden="true"
-              className="absolute inset-0 bg-cover bg-center"
-              style={{
-                backgroundImage:
-                  "url(https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=1800&q=90)",
-              }}
-            />
-            <div
-              aria-hidden="true"
-              className="absolute inset-0 bg-gradient-to-br from-[#102c20]/95 via-[#173d2c]/75 to-[#10271e]/90"
-            />
-            <div
-              aria-hidden="true"
-              className="absolute -right-24 top-16 h-80 w-80 rounded-full border border-white/10"
-            />
-            <div
-              aria-hidden="true"
-              className="absolute -right-8 top-32 h-48 w-48 rounded-full border border-white/10"
-            />
-
-            <div className="relative z-10 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-white/60">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-300" />
-              The Plotwise workspace
-            </div>
-
-            <div className="relative z-10 max-w-lg">
-              <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.08] px-3 py-2 text-xs font-medium text-white/85 backdrop-blur">
-                <Sparkles size={14} className="text-amber-200" />
-                Clarity for every square foot
-              </div>
-              <h1 className="font-display text-5xl font-semibold leading-[1.08] tracking-[-0.055em] xl:text-[3.8rem]">
-                Your land business,
-                <br />
-                <span className="font-serif font-normal italic text-[#e4d6a7]">
-                  in good order.
-                </span>
-              </h1>
-              <p className="mt-6 max-w-md text-sm leading-7 text-white/70 xl:text-base">
-                Bring plot inventory, customer bookings and payment progress
-                together in one calm, organised workspace.
+          <div
+            className="mt-10 max-w-md rounded-3xl border border-white/15 bg-white/[0.08] p-5 shadow-2xl backdrop-blur-xl"
+            style={{ animation: "float 7s ease-in-out infinite" }}
+          >
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/60">
+                Live inventory
               </p>
-
-              <div className="mt-10 max-w-sm rounded-2xl border border-white/15 bg-[#10291f]/55 p-4 shadow-2xl backdrop-blur-md">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium text-white/65">
-                    Workspace overview
-                  </span>
-                  <span className="rounded-full bg-emerald-300/15 px-2.5 py-1 text-[10px] font-semibold text-emerald-200">
-                    DEMO
-                  </span>
-                </div>
-                <div className="mt-4 grid grid-cols-3 divide-x divide-white/10">
-                  <div className="pr-3">
-                    <p className="text-2xl font-semibold tracking-tight">124</p>
-                    <p className="mt-1 text-[10px] text-white/55">
-                      Total plots
-                    </p>
-                  </div>
-                  <div className="px-3">
-                    <p className="text-2xl font-semibold tracking-tight">38</p>
-                    <p className="mt-1 text-[10px] text-white/55">Available</p>
-                  </div>
-                  <div className="pl-3">
-                    <p className="text-2xl font-semibold tracking-tight">86%</p>
-                    <p className="mt-1 text-[10px] text-white/55">Allocated</p>
-                  </div>
-                </div>
-                <p className="mt-4 border-t border-white/10 pt-3 text-[10px] leading-5 text-white/45">
-                  Illustrative figures shown for design preview only.
-                </p>
-              </div>
-            </div>
-
-            <div className="relative z-10 flex items-center justify-between gap-4 text-[11px] text-white/45">
-              <span>© {new Date().getFullYear()} Plotwise Estates</span>
-              <span className="inline-flex items-center gap-1.5">
-                <ShieldCheck size={14} />
-                Demo environment
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-400/15 px-2.5 py-1 text-[10px] font-bold text-emerald-300">
+                <TrendingUp size={11} /> +12% this month
               </span>
             </div>
-          </div>
-
-          {/* Sign-in panel */}
-          <div className="flex items-center justify-center px-6 py-10 sm:px-12 lg:px-10 xl:px-16">
-            <div className="w-full max-w-[390px]">
-              <div className="mb-8 flex items-center gap-2 text-xs font-semibold text-brand-800 lg:hidden">
-                <span className="grid h-8 w-8 place-items-center rounded-xl bg-brand-50">
-                  <LockKeyhole size={15} />
+            <div className="mt-4 grid grid-cols-8 gap-2">
+              {cells.map(({ t, i }) => (
+                <span
+                  key={i}
+                  className="aspect-square rounded-md"
+                  style={{
+                    background: DOT[t],
+                    opacity: 0,
+                    animation: `pop .5s ease-out ${0.25 + i * 0.04}s forwards`,
+                  }}
+                />
+              ))}
+            </div>
+            <div className="mt-4 flex gap-5 text-[11px] text-white/70">
+              {[
+                ["Available", "a"],
+                ["Booked", "b"],
+                ["Sold", "s"],
+              ].map(([l, k]) => (
+                <span key={l} className="flex items-center gap-2">
+                  <i
+                    className="h-2.5 w-2.5 rounded-sm"
+                    style={{ background: DOT[k] }}
+                  />
+                  {l}
                 </span>
-                Private workspace
-              </div>
-
-              <div className="mb-8 hidden h-12 w-12 place-items-center rounded-2xl bg-brand-50 text-brand-800 ring-1 ring-brand-100 lg:grid">
-                <LockKeyhole size={21} strokeWidth={1.8} />
-              </div>
-
-              <p className="text-xs font-bold uppercase tracking-[0.18em] text-brand-700">
-                Welcome back
-              </p>
-              <h2 className="mt-3 text-[2rem] font-semibold leading-tight tracking-[-0.045em] text-[#18251d] sm:text-[2.35rem]">
-                Sign in to Plotwise
-              </h2>
-              <p className="mt-3 text-sm leading-6 text-slate-500">
-                Pick up where you left off. Your workspace is waiting.
-              </p>
-
-              <form onSubmit={handleSubmit} className="mt-8 space-y-5">
-                <Input
-                  label="Email address"
-                  type="email"
-                  name="email"
-                  autoComplete="username"
-                  placeholder="you@company.com"
-                  required
-                  value={form.email}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      email: event.target.value,
-                    }))
-                  }
-                />
-
-                <div>
-                  <div className="mb-2 flex items-center justify-between gap-3">
-                    <label
-                      htmlFor="password"
-                      className="block text-sm font-semibold text-ink"
-                    >
-                      Password
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setForm((current) => ({
-                          ...current,
-                          email: DEMO_EMAIL,
-                          password: DEMO_PASSWORD,
-                        }));
-                        toast("Demo credentials filled in.", "info");
-                      }}
-                      className="text-xs font-semibold text-brand-700 transition hover:text-brand-900"
-                    >
-                      Use demo login
-                    </button>
-                  </div>
-                  <div className="relative">
-                    <input
-                      id="password"
-                      name="password"
-                      type={showPassword ? "text" : "password"}
-                      autoComplete="current-password"
-                      placeholder="Enter your password"
-                      required
-                      value={form.password}
-                      onChange={(event) =>
-                        setForm((current) => ({
-                          ...current,
-                          password: event.target.value,
-                        }))
-                      }
-                      className="w-full rounded-xl border border-line bg-[#fbfcfa] px-4 py-3.5 pr-12 text-sm text-ink outline-none transition placeholder:text-slate-400 hover:border-slate-300 focus:border-brand-500 focus:bg-white focus:ring-4 focus:ring-brand-100"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword((visible) => !visible)}
-                      aria-label={
-                        showPassword ? "Hide password" : "Show password"
-                      }
-                      aria-pressed={showPassword}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-2 text-slate-400 transition hover:bg-brand-50 hover:text-brand-800 focus:outline-none focus:ring-2 focus:ring-brand-300"
-                    >
-                      {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
-                    </button>
-                  </div>
-                </div>
-
-                <Button type="submit" size="lg" className="w-full">
-                  Sign in to workspace
-                  <ArrowUpRight size={17} />
-                </Button>
-              </form>
-
-              <div className="mt-6 flex items-start gap-3 rounded-xl border border-slate-200/80 bg-slate-50/80 p-3.5">
-                <ShieldCheck
-                  size={17}
-                  className="mt-0.5 shrink-0 text-brand-700"
-                />
-                <p className="text-xs leading-5 text-slate-500">
-                  <span className="font-semibold text-slate-700">
-                    Demo access.
-                  </span>{" "}
-                  Authentication is not connected yet. Use the demo login option
-                  to fill the preview credentials.
-                </p>
-              </div>
-
-              <p className="mt-8 text-center text-[11px] leading-5 text-slate-400">
-                By continuing, you agree to use this preview responsibly.
-                <br />
-                Do not enter a real password.
-              </p>
+              ))}
             </div>
           </div>
-        </section>
+        </div>
 
-        <footer className="flex flex-col items-center justify-between gap-2 px-2 py-5 text-[11px] text-slate-400 sm:flex-row sm:px-3">
-          <span>© {new Date().getFullYear()} Plotwise Estates</span>
-          <span className="inline-flex items-center gap-1.5">
-            Built for clearer land management
-            <ArrowUpRight size={12} />
-          </span>
-        </footer>
-      </div>
+        <p className="relative z-10 text-xs tracking-wide text-white/40">
+          © {new Date().getFullYear()} Plotwise Estates
+        </p>
+      </section>
+
+      {/* Sign-in panel */}
+      <section className="relative flex min-h-screen items-center justify-center overflow-hidden px-5 py-10 sm:px-10">
+        <div className="pointer-events-none absolute -right-32 -top-32 h-96 w-96 rounded-full bg-[#e9eee5] opacity-70 blur-3xl" />
+        <div
+          className="relative w-full max-w-[420px]"
+          style={{ animation: "up .7s ease-out both" }}
+        >
+          <Link
+            to="/"
+            className="mb-10 inline-flex items-center gap-2 text-sm font-semibold text-slate-500 transition hover:text-[#0b3d2e]"
+          >
+            <ArrowLeft size={16} /> Back to website
+          </Link>
+
+          <div className="mb-8 lg:hidden">
+            <Brand />
+          </div>
+
+          <p className="text-[11px] font-extrabold uppercase tracking-[0.22em] text-[#1b7a5a]">
+            Welcome back
+          </p>
+          <h2
+            className="mt-3 text-4xl font-semibold leading-tight tracking-tight text-[#14231d]"
+            style={DISPLAY}
+          >
+            Sign in to your{" "}
+            <span className="italic text-[#1b7a5a]">workspace</span>
+          </h2>
+          <p className="mt-3 text-sm leading-6 text-[#5b6b63]">
+            Enter your details to manage plots, bookings and payments.
+          </p>
+
+          <form onSubmit={handleSubmit} className="mt-8 space-y-5" noValidate>
+            <Input
+              label="Email address"
+              type="email"
+              name="email"
+              autoComplete="username"
+              leadingIcon={Mail}
+              placeholder="you@company.com"
+              value={form.email}
+              onChange={(e) => upd("email", e.target.value)}
+            />
+            <Input
+              label="Password"
+              name="password"
+              autoComplete="current-password"
+              type={show ? "text" : "password"}
+              leadingIcon={Lock}
+              placeholder="••••••••"
+              value={form.password}
+              onChange={(e) => upd("password", e.target.value)}
+              labelAside={
+                <button
+                  type="button"
+                  className="text-xs font-semibold text-[#1b7a5a] hover:underline"
+                >
+                  Forgot password?
+                </button>
+              }
+              endAdornment={
+                <button
+                  type="button"
+                  onClick={() => setShow((s) => !s)}
+                  aria-label={show ? "Hide password" : "Show password"}
+                  aria-pressed={show}
+                  className="grid h-9 w-9 place-items-center rounded-lg text-slate-400 transition hover:bg-[#e9f3ee] hover:text-[#0b3d2e] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1b7a5a]"
+                >
+                  {show ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              }
+            />
+
+            <label className="flex cursor-pointer items-center gap-2.5 text-sm text-[#5b6b63]">
+              <input
+                type="checkbox"
+                checked={remember}
+                onChange={(e) => setRemember(e.target.checked)}
+                className="h-4 w-4 rounded accent-[#0b3d2e]"
+              />
+              Keep me signed in
+            </label>
+
+            {error && (
+              <p
+                role="alert"
+                className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+              >
+                <AlertCircle size={16} /> {error}
+              </p>
+            )}
+
+            <Button
+              type="submit"
+              size="lg"
+              pill
+              loading={loading}
+              className="w-full !justify-between"
+            >
+              <span>{loading ? "Signing in…" : "Sign in"}</span>
+              {!loading && (
+                <span className="grid h-8 w-8 place-items-center rounded-full bg-white/15 transition group-hover:translate-x-1">
+                  <ArrowRight size={16} />
+                </span>
+              )}
+            </Button>
+          </form>
+
+          <div className="my-6 flex items-center gap-4 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">
+            <span className="h-px flex-1 bg-[#dfe5dc]" />
+            or
+            <span className="h-px flex-1 bg-[#dfe5dc]" />
+          </div>
+
+          <Button
+            variant="secondary"
+            size="lg"
+            pill
+            className="w-full"
+            onClick={() => {
+              setForm({ email: DEMO_EMAIL, password: DEMO_PASSWORD });
+              setError("");
+            }}
+          >
+            <ShieldCheck size={16} /> Fill demo credentials
+          </Button>
+
+          <p className="mt-7 text-center text-xs leading-5 text-slate-400">
+            Demo preview only. Authentication is not connected.
+            <br />
+            Do not enter real account credentials.
+          </p>
+        </div>
+      </section>
     </main>
   );
 }
