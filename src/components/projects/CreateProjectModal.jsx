@@ -242,7 +242,7 @@ export default function CreateProjectModal({
     setErrors((previous) => ({ ...previous, form: "" }));
     console.log(payload);
     try {
-      const response = await axios.post("/api/projects/", payload, {
+      const response = await axios.post("/api/projects/create", payload, {
         withCredentials: true,
       });
 
