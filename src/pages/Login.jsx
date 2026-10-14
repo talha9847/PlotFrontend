@@ -66,7 +66,7 @@ export default function LoginPage() {
       const destination =
         requestedPath?.pathname && requestedPath.pathname !== "/login"
           ? `${requestedPath.pathname}${requestedPath.search || ""}${requestedPath.hash || ""}`
-          : "/dashboard";
+          : "/admin/dashboard";
 
       navigate(destination, { replace: true });
     } catch (err) {

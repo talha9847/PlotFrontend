@@ -171,7 +171,7 @@ export default function Topbar({
         </div>
 
         {/* New booking */}
-        {showNewBooking && (
+        {/* {showNewBooking && (
           <button
             type="button"
             onClick={() => navigate("/admin/plots")}
@@ -180,7 +180,7 @@ export default function Topbar({
             <Plus size={15} style={{ color: "#e4c48a" }} />
             <span className="hidden sm:inline">New booking</span>
           </button>
-        )}
+        )} */}
 
         {/* User menu */}
         <div

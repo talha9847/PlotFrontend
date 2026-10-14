@@ -3,7 +3,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import LandingPage from "./pages/LandingPage";
 import LoginPage from "./pages/Login";
 import DashboardPage from "./pages/DashboardPage";
-import PlotsPage from "./pages/PlotsPage";
+import Plots from "./pages/Plots";
 import CustomersPage from "./pages/CustomersPage";
 import PaymentsPage from "./pages/PaymentsPage";
 import NotFoundPage from "./pages/NotFoundPage";
@@ -12,6 +12,7 @@ import ComingSoonPage from "./pages/ComingSoonPage";
 import AdminLayout from "./layouts/AdminLayout";
 import { AuthProvider } from "./context/authContext";
 import ProtectedRoute from "./components/common/ProtectedRoute";
+import Projects from "./pages/Projects";
 
 export default function App() {
   return (
@@ -26,7 +27,8 @@ export default function App() {
           <Route path="/admin" element={<AdminLayout />}>
             <Route index element={<Navigate to="dashboard" replace />} />
             <Route path="dashboard" element={<DashboardPage />} />
-            <Route path="plots" element={<PlotsPage />} />
+            <Route path="projects" element={<Projects />} />
+            <Route path="plots" element={<Plots />} />
             <Route path="customers" element={<CustomersPage />} />
             <Route path="payments" element={<PaymentsPage />} />
             <Route path="layout" element={<ComingSoonPage />} />

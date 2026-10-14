@@ -25,8 +25,14 @@ const groups = [
   {
     label: "Workspace",
     items: [
-      { to: "/admin", label: "Overview", icon: LayoutDashboard, end: true },
+      {
+        to: "/admin/dashboard",
+        label: "Overview",
+        icon: LayoutDashboard,
+        end: true,
+      },
       { to: "/admin/plots", label: "Plot inventory", icon: Grid2X2 },
+      { to: "/admin/projects", label: "Projects", icon: Grid2X2 },
       { to: "/admin/layout", label: "Layout editor", icon: Map },
       { to: "/admin/customers", label: "Customers", icon: Users },
       {

@@ -1,13 +1,13 @@
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../../context/authContext";
-import Loader from "./Loader";
+import { PageLoader } from "./Loader";
 
 export default function ProtectedRoute() {
   const { isAuthenticated, authLoading } = useAuth();
   const location = useLocation();
 
   if (authLoading) {
-    return <Loader label="Verifying your session..." />;
+    return <PageLoader label="Verifying your session..." />;
   }
 
   if (!isAuthenticated) {
