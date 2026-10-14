@@ -2,9 +2,57 @@ import { Plus, Search, Building2 } from "lucide-react";
 
 import Modal from "../common/Modal";
 import Button from "../common/Button";
+import Badge from "../common/Badge";
 
 const GOLD = "#e4c48a";
 const DISPLAY = { fontFamily: "'Fraunces', Georgia, serif" };
+
+const formatNumber = (value) => Number(value || 0).toLocaleString("en-IN");
+
+const formatLabel = (value) =>
+  String(value || "")
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+
+const formatArea = (value, unit) => {
+  if (value === null || value === undefined || value === "") {
+    return "Not specified";
+  }
+
+  const label =
+    AREA_UNITS.find((item) => item.value === unit)?.label || unit || "";
+
+  return `${Number(value).toLocaleString("en-IN")} ${label}`;
+};
+
+const AREA_UNITS = [
+  { value: "sq_ft", label: "Square feet" },
+  { value: "sq_m", label: "Square metres" },
+  { value: "sq_yd", label: "Square yards" },
+  { value: "acre", label: "Acres" },
+  { value: "hectare", label: "Hectares" },
+  { value: "guntha", label: "Guntha" },
+  { value: "bigha", label: "Bigha" },
+  { value: "other", label: "Other" },
+];
+
+function StatusBadge({ status }) {
+  const variants = {
+    active: "active",
+    planning: "pending",
+    on_hold: "warning",
+    completed: "success",
+    archived: "inactive",
+  };
+
+  return (
+    <Badge
+      status={formatLabel(status)}
+      variant={variants[status] || "info"}
+      size="md"
+    />
+  );
+}
 
 export default function ProjectDetailsModal({ project, onClose }) {
   if (!project) return null;
