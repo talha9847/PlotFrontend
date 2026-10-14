@@ -46,13 +46,7 @@ export default function LoginPage() {
       return setError("Please enter your email and password.");
     setLoading(true);
     // Demo only: replace this timeout with your real login request (POST /api/auth/login).
-    setTimeout(() => {
-      toast(
-        "Welcome back. Demo preview, authentication is not connected.",
-        "info",
-      );
-      navigate("/admin");
-    }, 900);
+    console.log(form);
   }
 
   return (
