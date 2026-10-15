@@ -462,7 +462,6 @@ export default function LeadsInfo() {
     };
 
     console.log(leadsData);
-    
 
     setSaving(true);
 
@@ -617,6 +616,8 @@ export default function LeadsInfo() {
                   "Contact",
                   "Lead type",
                   "Broker",
+                  "Project",
+                  "Plot",
                   "Location",
                   "Created",
                   "Actions",
@@ -718,6 +719,30 @@ export default function LeadsInfo() {
                           <span className="font-medium text-[#14231d]">
                             {leads.broker_name || "Admin"}
                           </span>
+                        </div>
+                      </td>
+
+                      {/* Project */}
+                      <td className="px-5 py-4">
+                        <div className="min-w-[130px]">
+                          <p className="font-medium text-[#14231d]">
+                            {leads.project_name || "—"}
+                          </p>
+                        </div>
+                      </td>
+
+                      {/* Plot */}
+                      <td className="px-5 py-4">
+                        <div className="min-w-[100px]">
+                          <p className="font-medium text-[#14231d]">
+                            {leads.plot_number || "—"}
+                          </p>
+
+                          {leads.plot_status && (
+                            <p className="mt-1 text-xs capitalize text-[#5b6b63]">
+                              {leads.plot_status.replaceAll("_", " ")}
+                            </p>
+                          )}
                         </div>
                       </td>
                       <td className="px-5 py-4">
@@ -937,7 +962,6 @@ export default function LeadsInfo() {
                   updateField("projectId", projectId);
                   updateField("plotId", "");
                 }}
-                required
               />
 
               <SearchablePlotSelect
@@ -951,7 +975,6 @@ export default function LeadsInfo() {
                 value={form.plotId}
                 onChange={(event) => updateField("plotId", event.target.value)}
                 disabled={!form.projectId}
-                required
               />
 
               <div>
