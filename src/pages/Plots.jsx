@@ -30,6 +30,8 @@ const SORTS = [
   { value: "high", label: "Price: high to low" },
 ];
 
+const PAGE_SIZES = [10, 20, 50, 100];
+
 const EMPTY_STATS = {
   total: 0,
   available: 0,
@@ -107,9 +109,19 @@ export default function Plots() {
   const toast = useToast();
 
   const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   const [status, setStatus] = useState("");
   const [sort, setSort] = useState("plot");
   const [selected, setSelected] = useState(null);
+
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(10);
+  const [pagination, setPagination] = useState({
+    page: 1,
+    limit: 10,
+    total: 0,
+    totalPages: 0,
+  });
 
   const [projects, setProjects] = useState([]);
   const [projectUuid, setProjectUuid] = useState("");
@@ -175,43 +187,32 @@ export default function Plots() {
     };
   }, []);
 
-  // 2. Fetch statistics and plots for the selected project's UUID
+  // Debounce search so the API is not called on every keystroke.
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQuery(query.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [query]);
+
+  // Fetch project-wide statistics separately; these should not change with pagination.
   useEffect(() => {
     let cancelled = false;
 
-    const fetchProjectPlots = async () => {
+    const fetchStats = async () => {
       if (!projectUuid) {
-        setPlots([]);
         setStats(EMPTY_STATS);
-        setSelected(null);
-        setLoadingPlots(false);
         return;
       }
 
-      setLoadingPlots(true);
-      setError("");
-      setSelected(null);
-
       try {
-        const [statsResponse, plotsResponse] = await Promise.all([
-          axios.get(`/api/plots/projects/${projectUuid}/stats`, {
-            withCredentials: true,
-          }),
-          axios.get(`/api/plots/projects/${projectUuid}`, {
-            withCredentials: true,
-          }),
-        ]);
-
+        const response = await axios.get(
+          `/api/plots/projects/${projectUuid}/stats`,
+          { withCredentials: true },
+        );
         if (cancelled) return;
 
-        // Backend response: data.stats
-        const receivedStats = statsResponse.data?.data?.stats;
-        // Backend response: data.plots
-        const receivedPlots = plotsResponse.data?.data?.plots;
-
-        if (!receivedStats || !Array.isArray(receivedPlots)) {
-          throw new Error("Invalid plot data received from server.");
-        }
+        const receivedStats = response.data?.data?.stats;
+        if (!receivedStats)
+          throw new Error("Invalid plot statistics received from server.");
 
         setStats({
           total: Number(receivedStats.total ?? 0),
@@ -219,14 +220,91 @@ export default function Plots() {
           booked: Number(receivedStats.booked ?? 0),
           sold: Number(receivedStats.sold ?? 0),
         });
-
-        setPlots(receivedPlots.map(normalizePlot));
       } catch (err) {
         if (cancelled) return;
+        console.error("Failed to fetch plot statistics:", err);
+        setStats(EMPTY_STATS);
+      }
+    };
 
+    fetchStats();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectUuid]);
+
+  // Fetch only the requested page. Search, status and sorting are handled by the API.
+  useEffect(() => {
+    let cancelled = false;
+
+    const fetchProjectPlots = async () => {
+      if (!projectUuid) {
+        setPlots([]);
+        setPagination({ page: 1, limit, total: 0, totalPages: 0 });
+        setSelected(null);
+        setLoadingPlots(false);
+        return;
+      }
+
+      setLoadingPlots(true);
+      setError("");
+
+      const sortBy =
+        sort === "low" || sort === "high" ? "price" : "plot_number";
+      const sortOrder = sort === "high" ? "desc" : "asc";
+
+      try {
+        const response = await axios.get(`/api/plots/projects/${projectUuid}`, {
+          withCredentials: true,
+          params: {
+            page,
+            limit,
+            search: debouncedQuery,
+            sortBy,
+            sortOrder,
+            status,
+          },
+        });
+
+        if (cancelled) return;
+
+        // Expected controller shape: { success, data: { plots, pagination } }.
+        const payload = response.data?.data;
+        const receivedPlots = payload?.plots;
+        const receivedPagination = payload?.pagination ?? payload?.meta;
+
+        if (!Array.isArray(receivedPlots)) {
+          throw new Error(
+            "Invalid plot data received from server. Expected data.plots.",
+          );
+        }
+
+        setPlots(receivedPlots.map(normalizePlot));
+
+        const total = Number(
+          receivedPagination?.total ??
+            receivedPagination?.totalItems ??
+            receivedPagination?.totalCount ??
+            receivedPlots.length,
+        );
+        const currentPage = Number(receivedPagination?.page ?? page);
+        const pageLimit = Number(receivedPagination?.limit ?? limit);
+        const totalPages = Number(
+          receivedPagination?.totalPages ??
+            Math.ceil(total / Math.max(pageLimit, 1)),
+        );
+
+        setPagination({
+          page: currentPage,
+          limit: pageLimit,
+          total,
+          totalPages,
+        });
+      } catch (err) {
+        if (cancelled) return;
         console.error("Failed to fetch plot data:", err);
         setPlots([]);
-        setStats(EMPTY_STATS);
+        setPagination({ page, limit, total: 0, totalPages: 0 });
         setError(
           err.response?.data?.message ||
             err.message ||
@@ -238,58 +316,36 @@ export default function Plots() {
     };
 
     fetchProjectPlots();
-
     return () => {
       cancelled = true;
     };
-  }, [projectUuid]);
+  }, [projectUuid, page, limit, debouncedQuery, status, sort]);
 
   const projectOptions = useMemo(
     () => projectOptionsFrom(projects),
     [projects],
   );
 
-  // The API already filters plots by project UUID.
+  // The server returns only the current page, already filtered and sorted.
   const scoped = plots;
+  const list = plots;
 
   const matches = (plot) => {
     const plotNumberMatches = String(plot.plotNo ?? "")
       .toLowerCase()
-      .includes(query.toLowerCase());
-
+      .includes(debouncedQuery.toLowerCase());
     const normalizedStatus =
       norm(plot.status) === "reserved" ? "booked" : norm(plot.status);
-
     const statusMatches = !status || normalizedStatus === norm(status);
-
     return plotNumberMatches && statusMatches;
   };
-
-  const list = useMemo(() => {
-    const result = scoped.filter(matches);
-
-    if (sort === "low") {
-      result.sort((a, b) => a.price - b.price);
-    } else if (sort === "high") {
-      result.sort((a, b) => b.price - a.price);
-    } else {
-      result.sort((a, b) =>
-        String(a.plotNo ?? "").localeCompare(
-          String(b.plotNo ?? ""),
-          undefined,
-          { numeric: true },
-        ),
-      );
-    }
-
-    return result;
-  }, [scoped, query, status, sort]);
 
   const handleProjectChange = (event) => {
     setProjectUuid(event.target.value);
     setQuery("");
     setStatus("");
     setSort("plot");
+    setPage(1);
     setSelected(null);
   };
 
@@ -338,7 +394,10 @@ export default function Plots() {
           <Input
             leadingIcon={Search}
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setPage(1);
+            }}
             placeholder="Search plot number"
             aria-label="Search plot number"
           />
@@ -353,7 +412,10 @@ export default function Plots() {
                 key={item || "all"}
                 type="button"
                 aria-pressed={status === item}
-                onClick={() => setStatus(item)}
+                onClick={() => {
+                  setStatus(item);
+                  setPage(1);
+                }}
                 className={`rounded-full border px-4 py-2.5 text-xs font-bold transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#1b7a5a]/20 ${
                   status === item
                     ? "border-[#0b3d2e] bg-[#0b3d2e] text-white shadow-md shadow-[#0b3d2e]/20"
@@ -409,114 +471,70 @@ export default function Plots() {
         )}
       </div>
 
-      {/* Plot list */}
-      <div className="overflow-hidden rounded-2xl border border-[#e3e9e0] bg-white shadow-sm shadow-[#062a20]/[0.03]">
-        <div className="flex flex-col gap-3 border-b border-[#eef2ec] p-5 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-lg font-semibold text-[#14231d]" style={DISPLAY}>
-              Plot list
-            </p>
+      {/* Map pagination controls */}
+      <div className="flex flex-col gap-4 rounded-2xl border border-[#e3e9e0] bg-white px-5 py-4 shadow-sm shadow-[#062a20]/[0.03] sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2 text-xs text-[#5b6b63]">
+          <span>Rows per page</span>
 
-            <p className="mt-1 text-xs text-[#5b6b63]">
-              {loadingPlots
-                ? "Loading plots..."
-                : `${list.length} of ${scoped.length} plots shown`}
-            </p>
-          </div>
-
-          <Select
-            wrapperClassName="w-full sm:w-[220px]"
-            aria-label="Sort plots"
-            value={sort}
-            onChange={(event) => setSort(event.target.value || "plot")}
-            placeholder="Sort: Plot number"
-            options={SORTS}
-          />
+          <select
+            value={limit}
+            onChange={(event) => {
+              setLimit(Number(event.target.value));
+              setPage(1);
+            }}
+            className="rounded-lg border border-[#dfe5dc] bg-white px-2.5 py-2 text-sm text-[#14231d] outline-none focus:border-[#1b7a5a]"
+            aria-label="Plots per page"
+          >
+            {PAGE_SIZES.map((size) => (
+              <option key={size} value={size}>
+                {size}
+              </option>
+            ))}
+          </select>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[640px] text-left text-sm">
-            <thead>
-              <tr className="bg-[#f4f7f2] text-[10px] font-bold uppercase tracking-[0.14em] text-[#5b6b63]">
-                {["Plot number", "Area", "Price", "Status", ""].map(
-                  (heading, index) => (
-                    <th key={index} className="px-5 py-3.5">
-                      {heading}
-                    </th>
-                  ),
-                )}
-              </tr>
-            </thead>
+        <div className="flex flex-wrap items-center justify-between gap-3 sm:justify-end">
+          <span className="text-xs text-[#5b6b63]">
+            Showing {pagination.total === 0 ? 0 : (page - 1) * limit + 1}
+            {"–"}
+            {Math.min(page * limit, pagination.total)}
+            {" of "}
+            {pagination.total} plots
+          </span>
 
-            <tbody>
-              {!loadingPlots &&
-                list.map((plot) => (
-                  <tr
-                    key={plot.uuid || plot.id}
-                    onClick={() => setSelected(plot)}
-                    className="group cursor-pointer border-t border-[#eef2ec] transition hover:bg-[#f8faf6]"
-                  >
-                    <td className="px-5 py-4">
-                      <span className="rounded-lg bg-[#e9f3ee] px-2.5 py-1 text-xs font-extrabold text-[#0b3d2e]">
-                        {plot.plotNo}
-                      </span>
-                    </td>
+          <span className="text-xs text-[#5b6b63]">
+            Page {pagination.totalPages === 0 ? 0 : page} of{" "}
+            {pagination.totalPages}
+          </span>
 
-                    <td className="px-5 py-4 text-[#3f4f48]">
-                      {fmtArea(plot.area)}
-                    </td>
+          <button
+            type="button"
+            disabled={loadingPlots || page <= 1}
+            onClick={() => setPage((current) => Math.max(1, current - 1))}
+            className="rounded-lg border border-[#dfe5dc] px-4 py-2 text-xs font-bold text-[#0b3d2e] transition hover:bg-[#f4f7f2] disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Previous
+          </button>
 
-                    <td className="px-5 py-4 font-bold text-[#14231d]">
-                      {inr(plot.price)}
-                    </td>
-
-                    <td className="px-5 py-4">
-                      <Badge>{plot.status}</Badge>
-                    </td>
-
-                    <td className="px-5 py-4 text-right">
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setSelected(plot);
-                        }}
-                        className="inline-flex items-center gap-1 text-xs font-extrabold text-[#1b7a5a] transition group-hover:gap-2"
-                      >
-                        Details <ArrowUpRight size={14} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-
-              {!loadingPlots && list.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="px-5 py-16 text-center">
-                    <span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-[#e9f3ee] text-[#1b7a5a]">
-                      <Search size={20} />
-                    </span>
-
-                    <p className="mt-4 text-sm font-bold text-[#14231d]">
-                      {error ? "Could not load plots" : "No plots match"}
-                    </p>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setQuery("");
-                        setStatus("");
-                      }}
-                      className="mt-3 text-xs font-extrabold text-[#1b7a5a] hover:underline"
-                    >
-                      Clear filters
-                    </button>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+          <button
+            type="button"
+            disabled={
+              loadingPlots ||
+              pagination.totalPages === 0 ||
+              page >= pagination.totalPages
+            }
+            onClick={() =>
+              setPage((current) => Math.min(pagination.totalPages, current + 1))
+            }
+            className="rounded-lg border border-[#dfe5dc] px-4 py-2 text-xs font-bold text-[#0b3d2e] transition hover:bg-[#f4f7f2] disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Next
+          </button>
         </div>
       </div>
+
+      {/* Plot list */}
+     
 
       {/* Plot details modal */}
       <Modal

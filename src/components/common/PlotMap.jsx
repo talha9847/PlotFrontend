@@ -161,14 +161,6 @@ export default function PlotMap({
 
             return (
               <div key={plot.id ?? plotNumber} className="contents">
-                {index === 12 && (
-                  <div className="col-span-2 flex items-center justify-center gap-2 rounded-lg border-y border-dashed border-[#c9b27a] bg-[#e4c48a]/25 py-3 sm:col-span-3 lg:col-span-4">
-                    <Route size={14} className="text-[#7a5d1c]" />
-                    <span className="text-[9px] font-bold uppercase tracking-[0.22em] text-[#7a5d1c]">
-                      Central access road
-                    </span>
-                  </div>
-                )}
                 <button
                   type="button"
                   onClick={() => onSelect?.(plot)}
@@ -208,13 +200,6 @@ export default function PlotMap({
               </div>
             );
           })}
-        </div>
-
-        <div className="mt-3 flex items-center justify-center gap-2 rounded-xl bg-[#0b3d2e] px-4 py-3 text-white shadow-md shadow-[#0b3d2e]/20">
-          <MapPin size={15} className="text-[#e4c48a]" />
-          <span className="text-[10px] font-bold uppercase tracking-[0.2em]">
-            Main Entrance · Dumas Road
-          </span>
         </div>
       </div>
 
