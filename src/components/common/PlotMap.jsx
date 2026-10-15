@@ -77,6 +77,7 @@ export default function PlotMap({
   plots = allPlots,
   matches,
   selectedId,
+  onClick,
 }) {
   const data = compact ? plots.slice(0, 18) : plots;
   const counts = data.reduce(
@@ -89,7 +90,7 @@ export default function PlotMap({
   );
 
   return (
-    <section className="min-w-0 space-y-4">
+    <section onClick={onClick} className="min-w-0 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#0b3d2e] text-[#e4c48a]">

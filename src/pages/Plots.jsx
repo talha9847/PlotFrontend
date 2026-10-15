@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   ArrowUpRight,
+  CalendarDays,
   CheckCircle2,
   CircleDashed,
   Clock3,
   Download,
+  FileText,
   Grid2X2,
+  IndianRupee,
   Search,
 } from "lucide-react";
 import axios from "axios";
@@ -18,6 +21,7 @@ import Modal from "../components/common/Modal";
 import Button from "../components/common/Button";
 import { inr } from "../data/mockData";
 import { useToast } from "../components/common/Toast";
+import SearchableLeadSelect from "../components/common/SearchableLeadSelect";
 
 const DISPLAY = { fontFamily: "'Fraunces', Georgia, serif" };
 const GOLD = "#e4c48a";
@@ -112,7 +116,9 @@ export default function Plots() {
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [status, setStatus] = useState("");
   const [sort, setSort] = useState("plot");
+
   const [selected, setSelected] = useState(null);
+  const [modalMode, setModalMode] = useState("details");
 
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
@@ -131,6 +137,47 @@ export default function Plots() {
   const [loadingProjects, setLoadingProjects] = useState(true);
   const [loadingPlots, setLoadingPlots] = useState(false);
   const [error, setError] = useState("");
+
+  const [booking, setBooking] = useState({
+    lead_id: "",
+    booking_date: new Date().toLocaleDateString("en-CA"),
+    agreed_price: "",
+    discount_amount: "0",
+    tax_amount: "0",
+    booking_amount: "0",
+    notes: "",
+  });
+
+  const [saving, setSaving] = useState(false);
+
+  const updateBooking = (e) => {
+    const { name, value } = e.target;
+
+    setBooking((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
+  };
+
+  const openBookingForm = () => {
+    setBooking({
+      lead_id: "",
+      booking_date: new Date().toLocaleDateString("en-CA"),
+      agreed_price: String(selected?.price ?? selected?.basePrice ?? 0),
+      discount_amount: "0",
+      tax_amount: "0",
+      booking_amount: "0",
+      notes: "",
+    });
+
+    setError("");
+    setModalMode("booking");
+  };
+
+  const totalAmount =
+    Number(booking.agreed_price || 0) -
+    Number(booking.discount_amount || 0) +
+    Number(booking.tax_amount || 0);
 
   // 1. Fetch projects for the dropdown
   useEffect(() => {
@@ -349,6 +396,70 @@ export default function Plots() {
     setSelected(null);
   };
 
+  const handleCreateBooking = async () => {
+    if (!selected || saving) return;
+
+    const price = Number(booking.agreed_price);
+    const discount = Number(booking.discount_amount);
+    const tax = Number(booking.tax_amount);
+    const initialPayment = Number(booking.booking_amount);
+    const total = price - discount + tax;
+
+    if (
+      !booking.lead_id ||
+      !Number.isFinite(price) ||
+      !Number.isFinite(discount) ||
+      !Number.isFinite(tax) ||
+      !Number.isFinite(initialPayment) ||
+      price < 0 ||
+      discount < 0 ||
+      tax < 0 ||
+      initialPayment < 0 ||
+      discount > price ||
+      initialPayment > total
+    ) {
+      setError("Please check the booking amounts and selected lead.");
+      return;
+    }
+
+    setSaving(true);
+    setError("");
+    console.log(price, tax, initialPayment, total, booking.lead_id);
+    return;
+    try {
+      // const response = await fetch("/api/bookings", {
+      //   method: "POST",
+      //   headers: {
+      //     "Content-Type": "application/json",
+      //   },
+      //   body: JSON.stringify({
+      //     project_id: selected.projectId,
+      //     plot_id: selected.id,
+      //     lead_id: booking.lead_id,
+      //     booking_date: booking.booking_date,
+      //     agreed_price: price,
+      //     discount_amount: discount,
+      //     tax_amount: tax,
+      //     total_amount: total,
+      //     booking_amount: initialPayment,
+      //     notes: booking.notes.trim() || null,
+      //   }),
+      // });
+      // const result = await response.json();
+      // if (!response.ok) {
+      //   throw new Error(result.message || "Could not create booking.");
+      // }
+      // setSelected(null);
+      // setModalMode("details");
+      // Refresh plots from your existing API/query here.
+      // Do not rely on mock data for persisted booking status.
+    } catch (err) {
+      setError(err.message || "Something went wrong.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="space-y-7">
       {/* Header */}
@@ -464,7 +575,10 @@ export default function Plots() {
         ) : (
           <PlotMap
             plots={scoped}
-            onSelect={setSelected}
+            onSelect={(plot) => {
+              setSelected(plot);
+              setModalMode("details");
+            }}
             matches={matches}
             selectedId={selected?.id}
           />
@@ -534,36 +648,70 @@ export default function Plots() {
       </div>
 
       {/* Plot list */}
-     
 
       {/* Plot details modal */}
+
       <Modal
         open={!!selected}
-        onClose={() => setSelected(null)}
-        title={selected?.plotNo || "Plot details"}
-        description="Plot information"
+        onClose={() => {
+          if (saving) return;
+          setSelected(null);
+          setModalMode("details");
+        }}
+        title={
+          modalMode === "booking"
+            ? `Book ${selected?.plotNo || "Plot"}`
+            : selected?.plotNo || "Plot details"
+        }
+        description={
+          modalMode === "booking"
+            ? "Enter the customer and booking details."
+            : "Plot information"
+        }
         footer={
-          <Button variant="secondary" onClick={() => setSelected(null)}>
-            Close
-          </Button>
+          modalMode === "details" ? (
+            <div className="flex w-full justify-between gap-3">
+              <Button variant="secondary" onClick={() => setSelected(null)}>
+                Close
+              </Button>
+
+              {String(selected?.status).toLowerCase() === "available" && (
+                <Button onClick={openBookingForm}>Book Plot</Button>
+              )}
+            </div>
+          ) : (
+            <div className="flex w-full justify-between gap-3">
+              <Button
+                variant="secondary"
+                disabled={saving}
+                onClick={() => {
+                  setError("");
+                  setModalMode("details");
+                }}
+              >
+                Back
+              </Button>
+
+              <Button disabled={saving} onClick={handleCreateBooking}>
+                {saving ? "Creating..." : "Create Booking"}
+              </Button>
+            </div>
+          )
         }
       >
-        {selected && (
+        {selected && modalMode === "details" && (
           <div className="space-y-4">
             <div className="flex items-center justify-between rounded-2xl bg-[#0b3d2e] p-5 text-white">
               <div>
                 <p
-                  className="text-[10px] font-bold uppercase tracking-[0.18em]"
+                  className="text-[10px] font-bold uppercase tracking-widest"
                   style={{ color: GOLD }}
                 >
                   Price
                 </p>
 
-                <p
-                  className="mt-1 text-3xl font-semibold tracking-tight"
-                  style={DISPLAY}
-                >
-                  {inr(selected.price)}
+                <p className="mt-1 text-3xl font-semibold" style={DISPLAY}>
+                  {inr(selected.price ?? selected.basePrice ?? 0)}
                 </p>
               </div>
 
@@ -581,9 +729,10 @@ export default function Plots() {
                   key={label}
                   className="rounded-xl border border-[#e3e9e0] bg-[#f6f9f4] p-4"
                 >
-                  <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#5b6b63]">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-[#5b6b63]">
                     {label}
                   </p>
+
                   <p className="mt-2 break-words font-bold text-[#14231d]">
                     {value}
                   </p>
@@ -591,6 +740,154 @@ export default function Plots() {
               ))}
             </div>
           </div>
+        )}
+
+        {selected && modalMode === "booking" && (
+          <form
+            id="booking-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              handleCreateBooking();
+            }}
+            className="space-y-5"
+          >
+            <div className="rounded-xl bg-[#e9f6ef] p-4 text-[#0b3d2e]">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider">
+                    Selected plot
+                  </p>
+                  <p className="mt-1 font-bold">
+                    {selected.plotNo || selected.plot_number}
+                  </p>
+                </div>
+
+                <div className="text-right">
+                  <p className="text-xs font-semibold uppercase tracking-wider">
+                    Total amount
+                  </p>
+                  <p className="mt-1 text-xl font-bold">{inr(totalAmount)}</p>
+                </div>
+              </div>
+
+              <p className="mt-2 text-xs text-[#426b56]">
+                Total = agreed price − discount + tax
+              </p>
+            </div>
+
+            <SearchableLeadSelect
+              label="Lead / Customer"
+              name="lead_id"
+              apiUrl="/api/leads/dropdown"
+              projectId={selected.projectId ?? selected.project_id}
+              value={booking.lead_id}
+              onChange={updateBooking}
+              placeholder="Select a lead"
+              searchPlaceholder="Search by name or phone..."
+              required
+              disabled={saving}
+            />
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Input
+                label="Booking date"
+                name="booking_date"
+                type="date"
+                value={booking.booking_date}
+                onChange={updateBooking}
+                leadingIcon={CalendarDays}
+                required
+                disabled={saving}
+              />
+
+              <Input
+                label="Agreed price"
+                name="agreed_price"
+                type="number"
+                min="0"
+                step="0.01"
+                value={booking.agreed_price}
+                onChange={updateBooking}
+                leadingIcon={IndianRupee}
+                required
+                disabled={saving}
+              />
+
+              <Input
+                label="Discount amount"
+                name="discount_amount"
+                type="number"
+                min="0"
+                step="0.01"
+                value={booking.discount_amount}
+                onChange={updateBooking}
+                leadingIcon={IndianRupee}
+                disabled={saving}
+              />
+
+              <Input
+                label="Tax amount"
+                name="tax_amount"
+                type="number"
+                min="0"
+                step="0.01"
+                value={booking.tax_amount}
+                onChange={updateBooking}
+                leadingIcon={IndianRupee}
+                disabled={saving}
+              />
+
+              <Input
+                wrapperClassName="sm:col-span-2"
+                label="Booking amount"
+                name="booking_amount"
+                type="number"
+                min="0"
+                step="0.01"
+                value={booking.booking_amount}
+                onChange={updateBooking}
+                leadingIcon={IndianRupee}
+                hint="Initial booking payment amount."
+                disabled={saving}
+              />
+            </div>
+
+            <div>
+              <label
+                htmlFor="booking-notes"
+                className="mb-2 block text-sm font-semibold text-[#14231d]"
+              >
+                Notes
+              </label>
+
+              <div className="relative">
+                <FileText
+                  size={17}
+                  className="pointer-events-none absolute left-4 top-4 text-slate-400"
+                />
+
+                <textarea
+                  id="booking-notes"
+                  name="notes"
+                  value={booking.notes}
+                  onChange={updateBooking}
+                  rows={3}
+                  disabled={saving}
+                  placeholder="Optional booking notes..."
+                  className="w-full rounded-xl border border-[#dfe5dc] bg-white py-3 pl-11 pr-4 text-sm outline-none transition placeholder:text-slate-400 focus:border-[#1b7a5a] focus:ring-4 focus:ring-[#1b7a5a]/15 disabled:bg-slate-50"
+                />
+              </div>
+            </div>
+
+            {error && (
+              <p
+                role="alert"
+                className="rounded-lg bg-rose-50 px-3 py-2 text-sm font-medium text-rose-600"
+              >
+                {error}
+              </p>
+            )}
+          </form>
         )}
       </Modal>
     </div>
