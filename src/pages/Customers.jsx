@@ -60,7 +60,7 @@ function StatCard({ icon: Icon, label, value, note, dark = false }) {
   );
 }
 
-export default function CustomersPage() {
+export default function Customers() {
   const toast = useToast();
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState("All");

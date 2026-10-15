@@ -4,7 +4,7 @@ import LandingPage from "./pages/LandingPage";
 import LoginPage from "./pages/Login";
 import DashboardPage from "./pages/DashboardPage";
 import Plots from "./pages/Plots";
-import CustomersPage from "./pages/CustomersPage";
+import Customers from "./pages/Customers";
 import PaymentsPage from "./pages/PaymentsPage";
 import NotFoundPage from "./pages/NotFoundPage";
 import ComingSoonPage from "./pages/ComingSoonPage";
@@ -13,6 +13,7 @@ import AdminLayout from "./layouts/AdminLayout";
 import { AuthProvider } from "./context/authContext";
 import ProtectedRoute from "./components/common/ProtectedRoute";
 import Projects from "./pages/Projects";
+import CustomersInfo from "./pages/CustomersInfo";
 
 export default function App() {
   return (
@@ -28,8 +29,9 @@ export default function App() {
             <Route index element={<Navigate to="dashboard" replace />} />
             <Route path="dashboard" element={<DashboardPage />} />
             <Route path="projects" element={<Projects />} />
+            <Route path="info" element={<CustomersInfo />} />
             <Route path="plots" element={<Plots />} />
-            <Route path="customers" element={<CustomersPage />} />
+            <Route path="customers" element={<Customers />} />
             <Route path="payments" element={<PaymentsPage />} />
             <Route path="layout" element={<ComingSoonPage />} />
             <Route path="installments" element={<ComingSoonPage />} />

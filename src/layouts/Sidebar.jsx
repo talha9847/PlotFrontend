@@ -31,10 +31,11 @@ const groups = [
         icon: LayoutDashboard,
         end: true,
       },
-      { to: "/admin/plots", label: "Plot inventory", icon: Grid2X2 },
       { to: "/admin/projects", label: "Projects", icon: Grid2X2 },
+      { to: "/admin/info", label: "Customers Info.", icon: Users },
+      { to: "/admin/plots", label: "Plot inventory", icon: Grid2X2 },
       { to: "/admin/layout", label: "Layout editor", icon: Map },
-      { to: "/admin/customers", label: "Customers", icon: Users },
+      { to: "/admin/customers", label: "Customers.", icon: Users },
       {
         to: "/admin/installments",
         label: "Installments",
