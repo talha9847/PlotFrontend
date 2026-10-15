@@ -22,6 +22,7 @@ import Button from "../components/common/Button";
 import { inr } from "../data/mockData";
 import { useToast } from "../components/common/Toast";
 import SearchableLeadSelect from "../components/common/SearchableLeadSelect";
+import Loader from "../components/common/Loader";
 
 const DISPLAY = { fontFamily: "'Fraunces', Georgia, serif" };
 const GOLD = "#e4c48a";
@@ -120,6 +121,7 @@ export default function Plots() {
   const [selected, setSelected] = useState(null);
   const [modalMode, setModalMode] = useState("details");
 
+  const [refreshKey, setRefreshKey] = useState(0);
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
   const [pagination, setPagination] = useState({
@@ -131,6 +133,8 @@ export default function Plots() {
 
   const [projects, setProjects] = useState([]);
   const [projectUuid, setProjectUuid] = useState("");
+  const [map, setMap] = useState({});
+  const [plotId, setPlotId] = useState(0);
   const [plots, setPlots] = useState([]);
   const [stats, setStats] = useState(EMPTY_STATS);
 
@@ -140,23 +144,99 @@ export default function Plots() {
 
   const [booking, setBooking] = useState({
     lead_id: "",
-    booking_date: new Date().toLocaleDateString("en-CA"),
+    booking_date: new Date().toISOString().slice(0, 10),
     agreed_price: "",
     discount_amount: "0",
-    tax_amount: "0",
+    tax_percent: "0",
     booking_amount: "0",
     notes: "",
   });
 
+  const formatINR = (value) =>
+    new Intl.NumberFormat("en-IN", {
+      style: "currency",
+      currency: "INR",
+      maximumFractionDigits: 2,
+    }).format(Number(value) || 0);
+
+  const formatIndianInput = (value) => {
+    if (value === "" || value === null || value === undefined) return "";
+
+    const raw = String(value).replace(/,/g, "");
+    if (!/^\d*\.?\d*$/.test(raw)) return String(value);
+
+    const [integerPart = "", decimalPart] = raw.split(".");
+    const formattedInteger = integerPart
+      ? Number(integerPart).toLocaleString("en-IN", {
+          maximumFractionDigits: 0,
+        })
+      : "";
+
+    return decimalPart !== undefined
+      ? `${formattedInteger}.${decimalPart}`
+      : formattedInteger;
+  };
+
+  const parseAmount = (value) => {
+    if (value === "" || value === null || value === undefined) return null;
+
+    const number = Number(String(value).replace(/,/g, ""));
+    return Number.isFinite(number) ? number : null;
+  };
+
+  const calculateTax = (price, discount, taxPercent) => {
+    const taxableAmount = Math.max(0, price - discount);
+    return Math.round(taxableAmount * (taxPercent / 100) * 100) / 100;
+  };
+
+  const [fieldErrors, setFieldErrors] = useState({});
+  const agreedPrice = parseAmount(booking.agreed_price);
+  const discountAmount = parseAmount(booking.discount_amount);
+  const taxPercent = parseAmount(booking.tax_percent);
+  const bookingAmount = parseAmount(booking.booking_amount);
+
+  const taxAmount =
+    agreedPrice !== null &&
+    discountAmount !== null &&
+    taxPercent !== null &&
+    discountAmount <= agreedPrice
+      ? calculateTax(agreedPrice, discountAmount, taxPercent)
+      : 0;
+
+  const totalAmount = (agreedPrice ?? 0) - (discountAmount ?? 0) + taxAmount;
   const [saving, setSaving] = useState(false);
 
-  const updateBooking = (e) => {
-    const { name, value } = e.target;
+  const updateBooking = (event) => {
+    const { name, value } = event.target;
 
-    setBooking((prev) => ({
-      ...prev,
-      [name]: value,
-    }));
+    const amountFields = ["agreed_price", "discount_amount", "booking_amount"];
+
+    let nextValue = value;
+
+    if (amountFields.includes(name)) {
+      const raw = value.replace(/,/g, "");
+
+      if (raw !== "" && !/^\d*\.?\d*$/.test(raw)) return;
+
+      nextValue = raw;
+    }
+
+    if (name === "tax_percent") {
+      if (value !== "" && !/^\d*\.?\d*$/.test(value)) return;
+
+      nextValue = value;
+    }
+
+    // Replace your existing state updates with this:
+    const nextBooking = {
+      ...booking,
+      [name]: nextValue,
+    };
+
+    setBooking(nextBooking);
+    setFieldErrors(validateBooking(nextBooking));
+
+    setError("");
   };
 
   const openBookingForm = () => {
@@ -165,19 +245,15 @@ export default function Plots() {
       booking_date: new Date().toLocaleDateString("en-CA"),
       agreed_price: String(selected?.price ?? selected?.basePrice ?? 0),
       discount_amount: "0",
-      tax_amount: "0",
+      tax_percent: "0",
       booking_amount: "0",
       notes: "",
     });
 
+    setFieldErrors({});
     setError("");
     setModalMode("booking");
   };
-
-  const totalAmount =
-    Number(booking.agreed_price || 0) -
-    Number(booking.discount_amount || 0) +
-    Number(booking.tax_amount || 0);
 
   // 1. Fetch projects for the dropdown
   useEffect(() => {
@@ -202,6 +278,11 @@ export default function Plots() {
 
         setProjects(projectList);
 
+        const projectMap = Object.fromEntries(
+          projectList.map((project) => [project.uuid, project.id]),
+        );
+
+        setMap(projectMap);
         // Select the first project by default.
         setProjectUuid((currentUuid) => {
           if (
@@ -278,7 +359,7 @@ export default function Plots() {
     return () => {
       cancelled = true;
     };
-  }, [projectUuid]);
+  }, [projectUuid, refreshKey]);
 
   // Fetch only the requested page. Search, status and sorting are handled by the API.
   useEffect(() => {
@@ -366,7 +447,7 @@ export default function Plots() {
     return () => {
       cancelled = true;
     };
-  }, [projectUuid, page, limit, debouncedQuery, status, sort]);
+  }, [projectUuid, page, limit, debouncedQuery, status, sort, refreshKey]);
 
   const projectOptions = useMemo(
     () => projectOptionsFrom(projects),
@@ -396,65 +477,176 @@ export default function Plots() {
     setSelected(null);
   };
 
+  const validateBooking = (values = booking) => {
+    const errors = {};
+
+    const price = parseAmount(values.agreed_price);
+    const discount = parseAmount(values.discount_amount);
+    const tax = parseAmount(values.tax_percent);
+    const initialPayment = parseAmount(values.booking_amount);
+
+    if (!values.lead_id) {
+      errors.lead_id = "Please select a lead.";
+    }
+
+    if (!values.booking_date) {
+      errors.booking_date = "Booking date is required.";
+    }
+
+    if (price === null) {
+      errors.agreed_price = "Agreed price is required.";
+    }
+
+    if (price !== null && price < 0) {
+      errors.agreed_price = "Price cannot be negative.";
+    }
+
+    if (discount === null) {
+      errors.discount_amount = "Discount amount is required.";
+    } else if (discount < 0) {
+      errors.discount_amount = "Discount cannot be negative.";
+    } else if (price !== null && discount > price) {
+      errors.discount_amount = "Discount cannot exceed agreed price.";
+    }
+
+    if (tax === null) {
+      errors.tax_percent = "Tax percentage is required.";
+    } else if (tax < 0 || tax > 100) {
+      errors.tax_percent = "Tax must be between 0% and 100%.";
+    }
+
+    const computedTax =
+      price !== null &&
+      discount !== null &&
+      tax !== null &&
+      discount <= price &&
+      price >= 0 &&
+      tax >= 0 &&
+      tax <= 100
+        ? calculateTax(price, discount, tax)
+        : 0;
+
+    const total =
+      price !== null && discount !== null && discount <= price
+        ? price - discount + computedTax
+        : 0;
+
+    if (initialPayment === null) {
+      errors.booking_amount = "Booking amount is required.";
+    } else if (initialPayment < 0) {
+      errors.booking_amount = "Booking amount cannot be negative.";
+    } else if (initialPayment > total) {
+      errors.booking_amount = "Booking amount cannot exceed total amount.";
+    }
+
+    return errors;
+  };
+
   const handleCreateBooking = async () => {
     if (!selected || saving) return;
 
-    const price = Number(booking.agreed_price);
-    const discount = Number(booking.discount_amount);
-    const tax = Number(booking.tax_amount);
-    const initialPayment = Number(booking.booking_amount);
-    const total = price - discount + tax;
+    const errors = validateBooking();
+    setFieldErrors(errors);
 
-    if (
-      !booking.lead_id ||
-      !Number.isFinite(price) ||
-      !Number.isFinite(discount) ||
-      !Number.isFinite(tax) ||
-      !Number.isFinite(initialPayment) ||
-      price < 0 ||
-      discount < 0 ||
-      tax < 0 ||
-      initialPayment < 0 ||
-      discount > price ||
-      initialPayment > total
-    ) {
-      setError("Please check the booking amounts and selected lead.");
+    if (Object.keys(errors).length > 0) {
+      setError("Please correct the highlighted fields.");
       return;
     }
 
+    const agreed_price = parseAmount(booking.agreed_price);
+    const discount_amount = parseAmount(booking.discount_amount);
+    const booking_amount = parseAmount(booking.booking_amount);
+    const tax_amount = taxAmount;
+    const total_amount = totalAmount;
+    const project_id = map[projectUuid];
+    console.log({
+      agreedPrice: agreed_price,
+      discount: discount_amount,
+      tax: tax_amount,
+      initialPayment: booking_amount,
+      total: total_amount,
+      leadId: booking.lead_id,
+      projectId: project_id,
+      bookingDate: booking.booking_date,
+      plotId: plotId,
+    });
+
+    if (
+      !Number.isFinite(Number(plotId)) ||
+      Number(plotId) <= 0 ||
+      !booking.lead_id ||
+      !Number.isFinite(Number(project_id)) ||
+      Number(project_id) <= 0 ||
+      !Number.isFinite(agreed_price) ||
+      !Number.isFinite(discount_amount) ||
+      !Number.isFinite(tax_amount) ||
+      !Number.isFinite(booking_amount) ||
+      !Number.isFinite(total_amount) ||
+      agreed_price < 0 ||
+      discount_amount < 0 ||
+      tax_amount < 0 ||
+      booking_amount < 0 ||
+      total_amount < 0 ||
+      discount_amount > agreed_price ||
+      booking_amount > total_amount
+    ) {
+      setError(
+        "Please check the booking amounts and selected lead, project, and plot.",
+      );
+      return;
+    }
+
+    const payload = {
+      project_id: project_id,
+      plot_id: plotId,
+      lead_id: booking.lead_id,
+      booking_date: booking.booking_date,
+      agreed_price: Number(agreed_price),
+      discount_amount: Number(discount_amount),
+      tax_amount: tax_amount,
+      booking_amount: Number(booking_amount),
+      notes: booking.notes.trim() || null,
+    };
+
     setSaving(true);
     setError("");
-    console.log(price, tax, initialPayment, total, booking.lead_id);
-    return;
+
+    console.log("i am here");
     try {
-      // const response = await fetch("/api/bookings", {
-      //   method: "POST",
-      //   headers: {
-      //     "Content-Type": "application/json",
-      //   },
-      //   body: JSON.stringify({
-      //     project_id: selected.projectId,
-      //     plot_id: selected.id,
-      //     lead_id: booking.lead_id,
-      //     booking_date: booking.booking_date,
-      //     agreed_price: price,
-      //     discount_amount: discount,
-      //     tax_amount: tax,
-      //     total_amount: total,
-      //     booking_amount: initialPayment,
-      //     notes: booking.notes.trim() || null,
-      //   }),
-      // });
-      // const result = await response.json();
-      // if (!response.ok) {
-      //   throw new Error(result.message || "Could not create booking.");
-      // }
-      // setSelected(null);
-      // setModalMode("details");
-      // Refresh plots from your existing API/query here.
-      // Do not rely on mock data for persisted booking status.
+      const res = await axios.post("/api/bookings/create", payload, {
+        withCredentials: true,
+      });
+
+      if (res.status == 200 || res.status == 201) {
+        toast(res.data?.message || "Booking created successfully.", "success");
+        setSelected(null);
+        setModalMode("details");
+        setFieldErrors({});
+
+        setBooking({
+          lead_id: "",
+          booking_date: new Date().toLocaleDateString("en-CA"),
+          agreed_price: "",
+          discount_amount: "0",
+          tax_percent: "0",
+          booking_amount: "0",
+          notes: "",
+        });
+
+        setRefreshKey((current) => current + 1);
+      }
     } catch (err) {
-      setError(err.message || "Something went wrong.");
+      const responseData = err.response?.data;
+
+      if (responseData?.errors) {
+        setFieldErrors(responseData.errors);
+      }
+
+      const message =
+        responseData?.message || err.message || "Failed to create booking.";
+
+      setError(message);
+      toast(message, "error");
     } finally {
       setSaving(false);
     }
@@ -578,6 +770,7 @@ export default function Plots() {
             onSelect={(plot) => {
               setSelected(plot);
               setModalMode("details");
+              setPlotId(plot.id);
             }}
             matches={matches}
             selectedId={selected?.id}
@@ -671,7 +864,13 @@ export default function Plots() {
         footer={
           modalMode === "details" ? (
             <div className="flex w-full justify-between gap-3">
-              <Button variant="secondary" onClick={() => setSelected(null)}>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setSelected(null);
+                  setModalMode("details");
+                }}
+              >
                 Close
               </Button>
 
@@ -692,8 +891,23 @@ export default function Plots() {
                 Back
               </Button>
 
-              <Button disabled={saving} onClick={handleCreateBooking}>
-                {saving ? "Creating..." : "Create Booking"}
+              <Button
+                type="submit"
+                disabled={saving}
+                onClick={() => {
+                  document.getElementById("booking-form")?.requestSubmit();
+                }}
+              >
+                {saving ? (
+                  <Loader
+                    size="xs"
+                    variant="spinner"
+                    color="#ffffff"
+                    label="Creating..."
+                  />
+                ) : (
+                  "Create Booking"
+                )}
               </Button>
             </div>
           )
@@ -711,7 +925,7 @@ export default function Plots() {
                 </p>
 
                 <p className="mt-1 text-3xl font-semibold" style={DISPLAY}>
-                  {inr(selected.price ?? selected.basePrice ?? 0)}
+                  {formatINR(selected.price ?? selected.basePrice ?? 0)}
                 </p>
               </div>
 
@@ -721,8 +935,8 @@ export default function Plots() {
             <div className="grid grid-cols-2 gap-3">
               {[
                 ["Area", fmtArea(selected.area)],
-                ["Reference", selected.plotNo],
-                ["Plot type", selected.plotType || "—"],
+                ["Reference", selected.plotNo || selected.plot_number],
+                ["Plot type", selected.plotType || selected.plot_type || "—"],
                 ["Notes", selected.notes || "—"],
               ].map(([label, value]) => (
                 <div
@@ -747,10 +961,21 @@ export default function Plots() {
             id="booking-form"
             onSubmit={(event) => {
               event.preventDefault();
+
+              const errors = validateBooking();
+              setFieldErrors(errors);
+
+              if (Object.keys(errors).length > 0) {
+                setError("Please correct the highlighted fields.");
+                return;
+              }
+
+              setError("");
               handleCreateBooking();
             }}
             className="space-y-5"
           >
+            {/* Booking summary */}
             <div className="rounded-xl bg-[#e9f6ef] p-4 text-[#0b3d2e]">
               <div className="flex items-center justify-between gap-3">
                 <div>
@@ -766,29 +991,33 @@ export default function Plots() {
                   <p className="text-xs font-semibold uppercase tracking-wider">
                     Total amount
                   </p>
-                  <p className="mt-1 text-xl font-bold">{inr(totalAmount)}</p>
+                  <p className="mt-1 text-xl font-bold">
+                    {formatINR(totalAmount)}
+                  </p>
                 </div>
               </div>
 
               <p className="mt-2 text-xs text-[#426b56]">
-                Total = agreed price − discount + tax
+                Total = agreed price − discount + calculated tax
               </p>
             </div>
 
+            {/* Lead selection */}
             <SearchableLeadSelect
               label="Lead / Customer"
               name="lead_id"
               apiUrl="/api/leads/dropdown"
-              projectId={selected.projectId ?? selected.project_id}
               value={booking.lead_id}
               onChange={updateBooking}
               placeholder="Select a lead"
               searchPlaceholder="Search by name or phone..."
               required
               disabled={saving}
+              error={fieldErrors.lead_id}
             />
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {/* Booking date */}
               <Input
                 label="Booking date"
                 name="booking_date"
@@ -798,60 +1027,112 @@ export default function Plots() {
                 leadingIcon={CalendarDays}
                 required
                 disabled={saving}
+                error={fieldErrors.booking_date}
               />
 
+              {/* Agreed price */}
               <Input
-                label="Agreed price"
+                label="Agreed price (₹)"
                 name="agreed_price"
-                type="number"
-                min="0"
-                step="0.01"
-                value={booking.agreed_price}
+                type="text"
+                inputMode="decimal"
+                value={formatIndianInput(booking.agreed_price)}
                 onChange={updateBooking}
                 leadingIcon={IndianRupee}
                 required
                 disabled={saving}
+                error={fieldErrors.agreed_price}
               />
 
+              {/* Discount */}
               <Input
-                label="Discount amount"
+                label="Discount amount (₹)"
                 name="discount_amount"
-                type="number"
-                min="0"
-                step="0.01"
-                value={booking.discount_amount}
+                type="text"
+                inputMode="decimal"
+                value={formatIndianInput(booking.discount_amount)}
                 onChange={updateBooking}
                 leadingIcon={IndianRupee}
+                required
                 disabled={saving}
+                error={fieldErrors.discount_amount}
               />
 
+              {/* Tax percentage */}
               <Input
-                label="Tax amount"
-                name="tax_amount"
-                type="number"
-                min="0"
-                step="0.01"
-                value={booking.tax_amount}
+                label="Tax percentage (%)"
+                name="tax_percent"
+                type="text"
+                inputMode="decimal"
+                value={booking.tax_percent}
                 onChange={updateBooking}
-                leadingIcon={IndianRupee}
+                required
                 disabled={saving}
+                error={fieldErrors.tax_percent}
+                hint="Enter a percentage between 0 and 100."
               />
 
+              {/* Automatically calculated tax */}
+              <Input
+                label="Calculated tax amount"
+                name="tax_amount_display"
+                type="text"
+                value={formatINR(taxAmount)}
+                readOnly
+                disabled={saving}
+                leadingIcon={IndianRupee}
+                hint="Calculated automatically after discount."
+              />
+
+              {/* Initial booking payment */}
               <Input
                 wrapperClassName="sm:col-span-2"
-                label="Booking amount"
+                label="Booking amount (₹)"
                 name="booking_amount"
-                type="number"
-                min="0"
-                step="0.01"
-                value={booking.booking_amount}
+                type="text"
+                inputMode="decimal"
+                value={formatIndianInput(booking.booking_amount)}
                 onChange={updateBooking}
                 leadingIcon={IndianRupee}
-                hint="Initial booking payment amount."
+                required
                 disabled={saving}
+                error={fieldErrors.booking_amount}
+                hint="Initial booking payment. Zero is allowed."
               />
             </div>
 
+            {/* Total breakdown */}
+            <div className="space-y-2 rounded-xl border border-[#e3e9e0] p-4 text-sm">
+              <div className="flex justify-between gap-3">
+                <span className="text-slate-600">Agreed price</span>
+                <span className="font-medium">
+                  {formatINR(parseAmount(booking.agreed_price) ?? 0)}
+                </span>
+              </div>
+
+              <div className="flex justify-between gap-3">
+                <span className="text-slate-600">Discount</span>
+                <span className="font-medium">
+                  − {formatINR(parseAmount(booking.discount_amount) ?? 0)}
+                </span>
+              </div>
+
+              <div className="flex justify-between gap-3">
+                <span className="text-slate-600">
+                  Tax ({booking.tax_percent || 0}%)
+                </span>
+                <span className="font-medium">{formatINR(taxAmount)}</span>
+              </div>
+
+              <div className="border-t border-[#e3e9e0] pt-3">
+                <div className="flex justify-between gap-3 font-bold text-[#0b3d2e]">
+                  <span>Total amount</span>
+                  <span>{formatINR(totalAmount)}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Notes */}
             <div>
               <label
                 htmlFor="booking-notes"
