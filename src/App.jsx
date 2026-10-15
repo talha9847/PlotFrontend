@@ -13,7 +13,8 @@ import AdminLayout from "./layouts/AdminLayout";
 import { AuthProvider } from "./context/authContext";
 import ProtectedRoute from "./components/common/ProtectedRoute";
 import Projects from "./pages/Projects";
-import CustomersInfo from "./pages/CustomersInfo";
+import Leads from "./pages/Leads";
+import Brokers from "./pages/Brokers";
 
 export default function App() {
   return (
@@ -29,7 +30,8 @@ export default function App() {
             <Route index element={<Navigate to="dashboard" replace />} />
             <Route path="dashboard" element={<DashboardPage />} />
             <Route path="projects" element={<Projects />} />
-            <Route path="info" element={<CustomersInfo />} />
+            <Route path="leads" element={<Leads />} />
+            <Route path="brokers" element={<Brokers />} />
             <Route path="plots" element={<Plots />} />
             <Route path="customers" element={<Customers />} />
             <Route path="payments" element={<PaymentsPage />} />

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Building2,
   Mail,
   MapPin,
   Plus,
@@ -10,39 +9,24 @@ import {
   Pencil,
   Phone,
   LoaderCircle,
+  Building2,
 } from "lucide-react";
 import axios from "axios";
 
 import Input from "../components/common/Input";
-import Select from "../components/common/Select";
 import Button from "../components/common/Button";
-import Badge from "../components/common/Badge";
 import Modal from "../components/common/Modal";
 import { useToast } from "../components/common/Toast";
 
 const DISPLAY = { fontFamily: "'Fraunces', Georgia, serif" };
 const GOLD = "#e4c48a";
-
-const CUSTOMER_TYPES = [
-  { value: "individual", label: "Individual" },
-  { value: "company", label: "Company" },
-  { value: "partnership", label: "Partnership" },
-  { value: "trust", label: "Trust" },
-  { value: "other", label: "Other" },
-];
-
-const TYPE_OPTIONS = [
-  { value: "all", label: "All customer types" },
-  ...CUSTOMER_TYPES,
-];
+const PAGE_SIZE = 10;
 
 const EMPTY_FORM = {
   name: "",
   phone: "",
   alternate_phone: "",
   email: "",
-  customer_type: "individual",
-  company_name: "",
   address_line1: "",
   address_line2: "",
   city: "",
@@ -53,10 +37,37 @@ const EMPTY_FORM = {
   notes: "",
 };
 
-const PAGE_SIZE = 10;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-const titleCase = (value = "") =>
-  value.charAt(0).toUpperCase() + value.slice(1);
+// Accepts 10-digit Indian mobile numbers, 91XXXXXXXXXX,
+// or +91XXXXXXXXXX. Spaces, hyphens and parentheses are allowed.
+const isValidIndianMobile = (value = "") => {
+  const cleaned = String(value)
+    .trim()
+    .replace(/[\s()-]/g, "");
+
+  return /^(?:\+91|91)?[6-9]\d{9}$/.test(cleaned);
+};
+
+const getPhoneError = (value, required = false) => {
+  const phone = String(value ?? "").trim();
+
+  if (!phone) {
+    return required ? "Mobile number is required." : "";
+  }
+
+  if (phone.length > 30 || !isValidIndianMobile(phone)) {
+    return "Enter a valid Indian mobile number (10 digits, starting with 6–9).";
+  }
+
+  return "";
+};
+
+const getApiError = (error, fallback) =>
+  error.response?.data?.message ||
+  error.response?.data?.error ||
+  error.message ||
+  fallback;
 
 const initials = (name = "") =>
   name
@@ -82,49 +93,17 @@ const formatDate = (date) => {
       });
 };
 
-// Accepts 10-digit Indian mobile numbers, 91XXXXXXXXXX,
-// or +91XXXXXXXXXX. Spaces, hyphens and parentheses are allowed.
-const isValidIndianMobile = (value = "") => {
-  const cleaned = String(value)
-    .trim()
-    .replace(/[\s()-]/g, "");
-
-  return /^(?:\+91|91)?[6-9]\d{9}$/.test(cleaned);
-};
-
-const getPhoneError = (value, required = false) => {
-  const phone = String(value ?? "").trim();
-
-  if (!phone) {
-    return required ? "Mobile number is required." : "";
-  }
-
-  if (!isValidIndianMobile(phone)) {
-    return "Enter a valid Indian mobile number (10 digits, starting with 6–9).";
-  }
-
-  return "";
-};
-
-const getApiError = (error, fallback) =>
-  error.response?.data?.message ||
-  error.response?.data?.error ||
-  error.message ||
-  fallback;
-
-const extractCustomers = (response) => {
+const extractBrokers = (response) => {
   const data = response.data?.data;
 
   if (Array.isArray(data)) return data;
-  if (Array.isArray(data?.customers)) return data.customers;
+  if (Array.isArray(data?.brokers)) return data.brokers;
   if (Array.isArray(data?.rows)) return data.rows;
-  if (Array.isArray(response.data?.customers)) {
-    return response.data.customers;
+  if (Array.isArray(response.data?.brokers)) {
+    return response.data.brokers;
   }
 
-  throw new Error(
-    "Invalid customers response. Expected an array of customers.",
-  );
+  throw new Error("Invalid brokers response. Expected an array of brokers.");
 };
 
 function StatCard({ icon: Icon, label, value, note, dark = false }) {
@@ -198,12 +177,11 @@ function FieldError({ children }) {
   );
 }
 
-export default function CustomersInfo() {
+export default function Brokers() {
   const toast = useToast();
 
-  const [customers, setCustomers] = useState([]);
+  const [brokers, setBrokers] = useState([]);
   const [query, setQuery] = useState("");
-  const [typeFilter, setTypeFilter] = useState("all");
   const [page, setPage] = useState(1);
 
   const [modalOpen, setModalOpen] = useState(false);
@@ -215,29 +193,29 @@ export default function CustomersInfo() {
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState("");
 
-  // Fetch customers from the backend.
-  const loadCustomers = useCallback(async () => {
+  // Fetch brokers from the backend.
+  const loadBrokers = useCallback(async () => {
     setLoading(true);
     setLoadError("");
 
     try {
-      const response = await axios.get("/api/customers", {
+      const response = await axios.get("/api/brokers/getBrokers", {
         withCredentials: true,
       });
 
-      setCustomers(extractCustomers(response));
+      setBrokers(extractBrokers(response));
     } catch (error) {
-      console.error("Failed to fetch customers:", error);
+      console.error("Failed to fetch brokers:", error);
 
-      setLoadError(getApiError(error, "Unable to load customers."));
+      setLoadError(getApiError(error, "Unable to load brokers."));
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    loadCustomers();
-  }, [loadCustomers]);
+    loadBrokers();
+  }, [loadBrokers]);
 
   const updateField = (field, value) => {
     setForm((current) => ({
@@ -259,56 +237,55 @@ export default function CustomersInfo() {
 
   const emailError =
     touched.email &&
-    form.email.trim() &&
-    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())
-      ? "Enter a valid email address."
-      : "";
+    (!form.email.trim() || !EMAIL_REGEX.test(form.email.trim()))
+      ? "A valid email address is required."
+      : form.email.trim().length > 254
+        ? "Email cannot exceed 254 characters."
+        : "";
 
-  const filteredCustomers = useMemo(() => {
+  const filteredBrokers = useMemo(() => {
     const search = query.trim().toLowerCase();
 
-    return customers.filter((customer) => {
-      const matchesType =
-        typeFilter === "all" || customer.customer_type === typeFilter;
-
+    return brokers.filter((broker) => {
       const searchable = [
-        customer.name,
-        customer.phone,
-        customer.alternate_phone,
-        customer.email,
-        customer.company_name,
-        customer.city,
-        customer.district,
-        customer.state,
-        customer.postal_code,
+        broker.name,
+        broker.phone,
+        broker.alternate_phone,
+        broker.email,
+        broker.city,
+        broker.district,
+        broker.state,
+        broker.postal_code,
+        broker.address_line1,
+        broker.address_line2,
       ]
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
 
-      return matchesType && searchable.includes(search);
+      return searchable.includes(search);
     });
-  }, [customers, query, typeFilter]);
+  }, [brokers, query]);
 
-  const totalPages = Math.ceil(filteredCustomers.length / PAGE_SIZE);
+  const totalPages = Math.ceil(filteredBrokers.length / PAGE_SIZE);
 
-  const visibleCustomers = useMemo(() => {
+  const visibleBrokers = useMemo(() => {
     const start = (page - 1) * PAGE_SIZE;
 
-    return filteredCustomers.slice(start, start + PAGE_SIZE);
-  }, [filteredCustomers, page]);
+    return filteredBrokers.slice(start, start + PAGE_SIZE);
+  }, [filteredBrokers, page]);
 
   useEffect(() => {
     setPage(1);
-  }, [query, typeFilter]);
+  }, [query]);
 
-  // Statistics are based on the complete customer collection.
-  const companyCount = customers.filter((customer) =>
-    ["company", "partnership", "trust"].includes(customer.customer_type),
+  // Statistics are based on the complete broker collection.
+  const brokersWithPhone = brokers.filter((broker) =>
+    Boolean(broker.phone),
   ).length;
 
-  const individualCount = customers.filter(
-    (customer) => customer.customer_type === "individual",
+  const brokersWithEmail = brokers.filter((broker) =>
+    Boolean(broker.email),
   ).length;
 
   const openAddModal = () => {
@@ -318,15 +295,17 @@ export default function CustomersInfo() {
     setModalOpen(true);
   };
 
-  const openEditModal = (customer) => {
-    setEditingUuid(customer.uuid);
+  const openEditModal = (broker) => {
+    setEditingUuid(broker.uuid);
 
     setForm({
       ...EMPTY_FORM,
-      ...customer,
-      phone: customer.phone ?? "",
-      alternate_phone: customer.alternate_phone ?? "",
-      email: customer.email ?? "",
+      ...broker,
+      name: broker.name ?? "",
+      phone: broker.phone ?? "",
+      alternate_phone: broker.alternate_phone ?? "",
+      email: broker.email ?? "",
+      country_code: broker.country_code ?? "IN",
     });
 
     setTouched({});
@@ -342,29 +321,28 @@ export default function CustomersInfo() {
     setTouched({});
   };
 
-  const submitCustomer = async (event) => {
+  const submitBroker = async (event) => {
     event.preventDefault();
 
-    // Validate all fields before sending the request.
-    const nextTouched = {
+    setTouched({
       name: true,
       phone: true,
       alternate_phone: true,
       email: true,
-    };
-
-    setTouched((current) => ({
-      ...current,
-      ...nextTouched,
-    }));
+      country_code: true,
+    });
 
     const cleanName = form.name.trim();
     const cleanPhone = form.phone.trim();
     const cleanAlternatePhone = form.alternate_phone.trim();
     const cleanEmail = form.email.trim();
+    const cleanCountryCode = form.country_code.trim().toUpperCase();
 
-    if (!cleanName) {
-      toast("Customer name is required.", "warning");
+    if (!cleanName || cleanName.length > 100) {
+      toast(
+        "Broker name is required and cannot exceed 100 characters.",
+        "warning",
+      );
       return;
     }
 
@@ -373,31 +351,46 @@ export default function CustomersInfo() {
       return;
     }
 
-    if (getPhoneError(cleanAlternatePhone, false)) {
+    if (cleanAlternatePhone && getPhoneError(cleanAlternatePhone)) {
       toast("Please enter a valid alternate mobile number.", "warning");
       return;
     }
 
-    if (cleanEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+    if (
+      !cleanEmail ||
+      cleanEmail.length > 254 ||
+      !EMAIL_REGEX.test(cleanEmail)
+    ) {
       toast("Please enter a valid email address.", "warning");
       return;
     }
-    if (!form.company_name) form.company_name = "";
 
-    const customerData = {
+    if (!/^[A-Z]{2}$/.test(cleanCountryCode)) {
+      toast("Country code must contain two letters.", "warning");
+      return;
+    }
+
+    if (
+      form.address_line1.length > 5000 ||
+      form.address_line2.length > 5000 ||
+      form.notes.length > 10000
+    ) {
+      toast("Address or notes exceed the allowed length.", "warning");
+      return;
+    }
+
+    const brokerData = {
       name: cleanName,
       phone: cleanPhone,
       alternate_phone: cleanAlternatePhone || null,
-      email: cleanEmail || null,
-      customer_type: form.customer_type,
-      company_name: form.company_name.trim() || null,
+      email: cleanEmail,
       address_line1: form.address_line1.trim() || null,
       address_line2: form.address_line2.trim() || null,
       city: form.city.trim() || null,
       district: form.district.trim() || null,
       state: form.state.trim() || null,
       postal_code: form.postal_code.trim() || null,
-      country_code: form.country_code.trim().toUpperCase() || "IN",
+      country_code: cleanCountryCode,
       notes: form.notes.trim() || null,
     };
 
@@ -405,17 +398,17 @@ export default function CustomersInfo() {
 
     try {
       if (editingUuid) {
-        await axios.put(`/api/customers/${editingUuid}`, customerData, {
+        await axios.put(`/api/brokers/${editingUuid}`, brokerData, {
           withCredentials: true,
         });
 
-        toast("Customer updated successfully.", "success");
+        toast("Broker updated successfully.", "success");
       } else {
-        await axios.post("/api/customers/create", customerData, {
+        await axios.post("/api/brokers/create", brokerData, {
           withCredentials: true,
         });
 
-        toast("Customer added successfully.", "success");
+        toast("Broker added successfully.", "success");
       }
 
       setModalOpen(false);
@@ -423,16 +416,14 @@ export default function CustomersInfo() {
       setForm({ ...EMPTY_FORM });
       setTouched({});
 
-      await loadCustomers();
+      await loadBrokers();
     } catch (error) {
-      console.error("Failed to save customer:", error);
+      console.error("Failed to save broker:", error);
 
       toast(
         getApiError(
           error,
-          editingUuid
-            ? "Unable to update customer."
-            : "Unable to create customer.",
+          editingUuid ? "Unable to update broker." : "Unable to create broker.",
         ),
         "error",
       );
@@ -454,19 +445,19 @@ export default function CustomersInfo() {
             className="mt-2 text-4xl font-semibold tracking-tight text-[#14231d]"
             style={DISPLAY}
           >
-            Customer directory
+            Broker directory
             <span style={{ color: GOLD }}>.</span>
           </h1>
 
           <p className="mt-2 max-w-2xl text-sm leading-6 text-[#5b6b63]">
-            Keep customer contact, identity type, and address details organized
-            in one place.
+            Manage broker contact information, locations, and business
+            relationships in one place.
           </p>
         </div>
 
         <Button size="lg" onClick={openAddModal}>
           <Plus size={17} style={{ color: GOLD }} />
-          Add customer
+          Add broker
         </Button>
       </header>
 
@@ -474,28 +465,28 @@ export default function CustomersInfo() {
       <section className="grid gap-4 sm:grid-cols-3">
         <StatCard
           icon={Users}
-          label="Total customers"
-          value={customers.length}
-          note="All saved customer records"
+          label="Total brokers"
+          value={brokers.length}
+          note="All saved broker records"
           dark
         />
 
         <StatCard
-          icon={UserRound}
-          label="Individuals"
-          value={individualCount}
-          note="Personal customer profiles"
+          icon={Phone}
+          label="Mobile numbers"
+          value={brokersWithPhone}
+          note="Brokers with contact numbers"
         />
 
         <StatCard
-          icon={Building2}
-          label="Organizations"
-          value={companyCount}
-          note="Companies, partnerships and trusts"
+          icon={Mail}
+          label="Email addresses"
+          value={brokersWithEmail}
+          note="Brokers with email addresses"
         />
       </section>
 
-      {/* Customer table */}
+      {/* Broker table */}
       <section className="overflow-hidden rounded-2xl border border-[#e3e9e0] bg-white shadow-sm shadow-[#062a20]/[0.03]">
         <div className="flex flex-col gap-4 border-b border-[#eef2ec] p-5 lg:flex-row lg:items-center lg:justify-between">
           <div>
@@ -503,31 +494,22 @@ export default function CustomersInfo() {
               className="text-lg font-semibold text-[#14231d]"
               style={DISPLAY}
             >
-              All customers
+              All brokers
             </h2>
 
             <p className="mt-1 text-xs text-[#5b6b63]">
-              Search and manage saved customer records
+              Search and manage saved broker records
             </p>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-[minmax(240px,1fr)_200px]">
-            <Input
-              wrapperClassName="w-full"
-              leadingIcon={Search}
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search name, phone, email or city"
-              aria-label="Search customers"
-            />
-
-            <Select
-              aria-label="Filter by customer type"
-              value={typeFilter}
-              onChange={(event) => setTypeFilter(event.target.value || "all")}
-              options={TYPE_OPTIONS}
-            />
-          </div>
+          <Input
+            wrapperClassName="w-full lg:max-w-md"
+            leadingIcon={Search}
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search name, phone, email or city"
+            aria-label="Search brokers"
+          />
         </div>
 
         {loadError && (
@@ -539,7 +521,7 @@ export default function CustomersInfo() {
 
             <button
               type="button"
-              onClick={loadCustomers}
+              onClick={loadBrokers}
               className="mt-2 font-bold underline"
             >
               Try again
@@ -548,14 +530,14 @@ export default function CustomersInfo() {
         )}
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[820px] text-left text-sm">
+          <table className="w-full min-w-[850px] text-left text-sm">
             <thead>
               <tr className="bg-[#f4f7f2] text-[10px] font-bold uppercase tracking-[0.14em] text-[#5b6b63]">
                 {[
-                  "Customer",
+                  "Broker",
                   "Contact",
-                  "Customer type",
                   "Location",
+                  "Address",
                   "Created",
                   "Actions",
                 ].map((heading) => (
@@ -574,46 +556,51 @@ export default function CustomersInfo() {
                       size={22}
                       className="mx-auto animate-spin text-[#1b7a5a]"
                     />
+
                     <p className="mt-3 text-sm text-[#5b6b63]">
-                      Loading customers...
+                      Loading brokers...
                     </p>
                   </td>
                 </tr>
               ) : (
-                visibleCustomers.map((customer) => {
-                  const location = [customer.city, customer.state]
+                visibleBrokers.map((broker) => {
+                  const location = [broker.city, broker.district, broker.state]
+                    .filter(Boolean)
+                    .join(", ");
+
+                  const address = [broker.address_line1, broker.address_line2]
                     .filter(Boolean)
                     .join(", ");
 
                   return (
                     <tr
-                      key={customer.uuid}
+                      key={broker.uuid || broker.id}
                       className="group border-t border-[#eef2ec] transition hover:bg-[#f8faf6]"
                     >
                       <td className="px-5 py-4">
-                        <div className="flex min-w-[190px] items-center gap-3">
+                        <div className="flex min-w-[180px] items-center gap-3">
                           <span
                             className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#0b3d2e] text-[11px] font-extrabold ring-2 ring-[#e4c48a]/40"
                             style={{ color: GOLD }}
                           >
-                            {initials(customer.name)}
+                            {initials(broker.name)}
                           </span>
 
                           <div className="min-w-0">
-                            <p className="max-w-[220px] truncate font-bold text-[#14231d]">
-                              {customer.name}
+                            <p className="max-w-[200px] truncate font-bold text-[#14231d]">
+                              {broker.name}
                             </p>
 
-                            {customer.company_name &&
-                              customer.company_name !== customer.name && (
-                                <p className="mt-0.5 max-w-[220px] truncate text-xs text-[#5b6b63]">
-                                  {customer.company_name}
-                                </p>
-                              )}
+                            <p className="text-xs text-[#5b6b63]">
+                              {broker.country_code || "IN"}
+                              {broker.postal_code
+                                ? ` · ${broker.postal_code}`
+                                : ""}
+                            </p>
 
-                            {customer.notes && (
-                              <p className="mt-0.5 max-w-[220px] truncate text-xs text-[#8a958e]">
-                                {customer.notes}
+                            {broker.notes && (
+                              <p className="mt-0.5 max-w-[200px] truncate text-xs text-[#8a958e]">
+                                {broker.notes}
                               </p>
                             )}
                           </div>
@@ -621,54 +608,42 @@ export default function CustomersInfo() {
                       </td>
 
                       <td className="px-5 py-4">
-                        <div className="space-y-1.5">
-                          <Detail icon={Phone}>{customer.phone}</Detail>
+                        <div className="min-w-[190px] space-y-1.5">
+                          <Detail icon={Phone}>{broker.phone}</Detail>
 
-                          {customer.alternate_phone && (
+                          {broker.alternate_phone && (
                             <Detail icon={Phone}>
-                              {customer.alternate_phone}
+                              {broker.alternate_phone}
                             </Detail>
                           )}
 
-                          {customer.email && (
-                            <Detail icon={Mail}>{customer.email}</Detail>
-                          )}
+                          <Detail icon={Mail}>{broker.email}</Detail>
                         </div>
                       </td>
 
                       <td className="px-5 py-4">
-                        <Badge
-                          variant={
-                            customer.customer_type === "individual"
-                              ? "available"
-                              : "info"
-                          }
-                        >
-                          {titleCase(customer.customer_type || "other")}
-                        </Badge>
-                      </td>
-
-                      <td className="px-5 py-4">
-                        <div className="max-w-[190px] space-y-1">
+                        <div className="max-w-[190px] space-y-1.5">
                           <Detail icon={MapPin}>
                             {location || "Location not added"}
                           </Detail>
-
-                          <p className="pl-[22px] text-xs text-[#8a958e]">
-                            {customer.postal_code || "No postal code"}
-                          </p>
                         </div>
                       </td>
 
+                      <td className="px-5 py-4">
+                        <p className="max-w-[200px] break-words text-xs text-[#5b6b63]">
+                          {address || "Address not added"}
+                        </p>
+                      </td>
+
                       <td className="whitespace-nowrap px-5 py-4 text-xs text-[#5b6b63]">
-                        {formatDate(customer.created_at)}
+                        {formatDate(broker.created_at)}
                       </td>
 
                       <td className="px-5 py-4">
                         <Button
                           variant="secondary"
                           size="sm"
-                          onClick={() => openEditModal(customer)}
+                          onClick={() => openEditModal(broker)}
                         >
                           <Pencil size={14} />
                           Edit
@@ -679,7 +654,7 @@ export default function CustomersInfo() {
                 })
               )}
 
-              {!loading && visibleCustomers.length === 0 && (
+              {!loading && visibleBrokers.length === 0 && (
                 <tr>
                   <td colSpan={6} className="px-5 py-16 text-center">
                     <span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-[#e9f3ee] text-[#1b7a5a]">
@@ -688,24 +663,23 @@ export default function CustomersInfo() {
 
                     <p className="mt-4 text-sm font-bold text-[#14231d]">
                       {loadError
-                        ? "Could not load customers"
-                        : "No customers found"}
+                        ? "Could not load brokers"
+                        : "No brokers found"}
                     </p>
 
                     <p className="mt-1 text-xs text-[#5b6b63]">
-                      Try a different search or customer type.
+                      Try another search or add a new broker.
                     </p>
 
                     <button
                       type="button"
                       onClick={() => {
                         setQuery("");
-                        setTypeFilter("all");
                         setPage(1);
                       }}
                       className="mt-3 text-xs font-extrabold text-[#1b7a5a] hover:underline"
                     >
-                      Clear filters
+                      Clear search
                     </button>
                   </td>
                 </tr>
@@ -719,12 +693,12 @@ export default function CustomersInfo() {
           <span className="text-xs text-[#5b6b63]">
             Showing{" "}
             <b className="text-[#14231d]">
-              {filteredCustomers.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1}
+              {filteredBrokers.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1}
               {"–"}
-              {Math.min(page * PAGE_SIZE, filteredCustomers.length)}
+              {Math.min(page * PAGE_SIZE, filteredBrokers.length)}
             </b>{" "}
-            of <b className="text-[#14231d]">{filteredCustomers.length}</b>{" "}
-            customers
+            of <b className="text-[#14231d]">{filteredBrokers.length}</b>{" "}
+            brokers
           </span>
 
           <div className="flex items-center gap-3">
@@ -755,12 +729,12 @@ export default function CustomersInfo() {
         </div>
       </section>
 
-      {/* Add / Edit modal */}
+      {/* Add / Edit broker modal */}
       <Modal
         open={modalOpen}
         onClose={closeModal}
         size="xl"
-        title={editingUuid ? "Edit customer" : "Add customer"}
+        title={editingUuid ? "Edit broker" : "Add broker"}
         description="Fields marked with * are required."
         footer={
           <>
@@ -768,20 +742,21 @@ export default function CustomersInfo() {
               Cancel
             </Button>
 
-            <Button type="submit" form="customer-info-form" disabled={saving}>
+            <Button type="submit" form="broker-info-form" disabled={saving}>
               {saving && <LoaderCircle size={16} className="animate-spin" />}
+
               {saving
                 ? "Saving..."
                 : editingUuid
                   ? "Save changes"
-                  : "Add customer"}
+                  : "Add broker"}
             </Button>
           </>
         }
       >
         <form
-          id="customer-info-form"
-          onSubmit={submitCustomer}
+          id="broker-info-form"
+          onSubmit={submitBroker}
           noValidate
           className="space-y-6"
         >
@@ -802,31 +777,26 @@ export default function CustomersInfo() {
                 <Input
                   label="Full name"
                   required
+                  maxLength={100}
                   value={form.name}
                   onChange={(event) => updateField("name", event.target.value)}
-                  placeholder="Customer full name"
+                  placeholder="Broker full name"
                 />
 
-                {touched.name && !form.name.trim() && (
-                  <FieldError>Name is required.</FieldError>
-                )}
+                {touched.name &&
+                  (!form.name.trim() || form.name.trim().length > 100) && (
+                    <FieldError>
+                      Name is required and must not exceed 100 characters.
+                    </FieldError>
+                  )}
               </div>
-
-              <Select
-                label="Customer type"
-                required
-                value={form.customer_type}
-                onChange={(event) =>
-                  updateField("customer_type", event.target.value)
-                }
-                options={CUSTOMER_TYPES}
-              />
 
               <div>
                 <Input
                   label="Mobile number"
                   type="tel"
                   required
+                  maxLength={30}
                   value={form.phone}
                   onChange={(event) => updateField("phone", event.target.value)}
                   placeholder="+91 98765 43210"
@@ -834,18 +804,13 @@ export default function CustomersInfo() {
                 />
 
                 <FieldError>{phoneError}</FieldError>
-
-                {!phoneError && form.phone.trim() && touched.phone && (
-                  <p className="mt-1.5 text-xs font-medium text-[#1b7a5a]">
-                    Valid mobile number format
-                  </p>
-                )}
               </div>
 
               <div>
                 <Input
                   label="Alternate mobile number"
                   type="tel"
+                  maxLength={30}
                   value={form.alternate_phone}
                   onChange={(event) =>
                     updateField("alternate_phone", event.target.value)
@@ -855,39 +820,22 @@ export default function CustomersInfo() {
                 />
 
                 <FieldError>{alternatePhoneError}</FieldError>
-
-                {!alternatePhoneError &&
-                  form.alternate_phone.trim() &&
-                  touched.alternate_phone && (
-                    <p className="mt-1.5 text-xs font-medium text-[#1b7a5a]">
-                      Valid mobile number format
-                    </p>
-                  )}
               </div>
 
               <div>
                 <Input
                   label="Email address"
                   type="email"
+                  required
+                  maxLength={254}
                   value={form.email}
                   onChange={(event) => updateField("email", event.target.value)}
-                  placeholder="name@example.com"
+                  placeholder="broker@example.com"
                   aria-invalid={Boolean(emailError)}
                 />
 
                 <FieldError>{emailError}</FieldError>
               </div>
-
-              {form.customer_type !== "individual" && (
-                <Input
-                  label="Company / organization name"
-                  value={form.company_name}
-                  onChange={(event) =>
-                    updateField("company_name", event.target.value)
-                  }
-                  placeholder="Registered organization name"
-                />
-              )}
             </div>
           </section>
 
@@ -917,11 +865,12 @@ export default function CustomersInfo() {
                 onChange={(event) =>
                   updateField("address_line2", event.target.value)
                 }
-                placeholder="Area or landmark (optional)"
+                placeholder="Area or landmark"
               />
 
               <Input
                 label="City"
+                maxLength={100}
                 value={form.city}
                 onChange={(event) => updateField("city", event.target.value)}
                 placeholder="City"
@@ -929,6 +878,7 @@ export default function CustomersInfo() {
 
               <Input
                 label="District"
+                maxLength={100}
                 value={form.district}
                 onChange={(event) =>
                   updateField("district", event.target.value)
@@ -938,6 +888,7 @@ export default function CustomersInfo() {
 
               <Input
                 label="State"
+                maxLength={100}
                 value={form.state}
                 onChange={(event) => updateField("state", event.target.value)}
                 placeholder="State"
@@ -945,6 +896,7 @@ export default function CustomersInfo() {
 
               <Input
                 label="Postal code"
+                maxLength={20}
                 value={form.postal_code}
                 onChange={(event) =>
                   updateField("postal_code", event.target.value)
@@ -952,15 +904,28 @@ export default function CustomersInfo() {
                 placeholder="PIN / postal code"
               />
 
-              <Input
-                label="Country code (ISO 3166-1 alpha-2)"
-                maxLength={2}
-                value={form.country_code}
-                onChange={(event) =>
-                  updateField("country_code", event.target.value.toUpperCase())
-                }
-                placeholder="IN"
-              />
+              <div>
+                <Input
+                  label="Country code"
+                  required
+                  maxLength={2}
+                  value={form.country_code}
+                  onChange={(event) =>
+                    updateField(
+                      "country_code",
+                      event.target.value.toUpperCase(),
+                    )
+                  }
+                  placeholder="IN"
+                />
+
+                {touched.country_code &&
+                  !/^[A-Z]{2}$/.test(form.country_code.trim()) && (
+                    <FieldError>
+                      Enter a two-letter country code, such as IN.
+                    </FieldError>
+                  )}
+              </div>
             </div>
           </section>
 
@@ -972,17 +937,18 @@ export default function CustomersInfo() {
 
             <label
               className="mb-2 block text-sm font-semibold text-[#14231d]"
-              htmlFor="customer-notes"
+              htmlFor="broker-notes"
             >
               Notes
             </label>
 
             <textarea
-              id="customer-notes"
+              id="broker-notes"
               rows={3}
+              maxLength={10000}
               value={form.notes}
               onChange={(event) => updateField("notes", event.target.value)}
-              placeholder="Optional notes about this customer"
+              placeholder="Optional notes about this broker"
               className="block w-full rounded-xl border border-[#dfe5dc] bg-white px-4 py-3 text-sm text-[#14231d] outline-none transition placeholder:text-slate-400 focus:border-[#1b7a5a] focus:ring-4 focus:ring-[#1b7a5a]/15"
             />
           </section>
