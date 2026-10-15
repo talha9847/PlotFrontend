@@ -461,6 +461,9 @@ export default function LeadsInfo() {
       plotId: Number(form.plotId) || null,
     };
 
+    console.log(leadsData);
+    
+
     setSaving(true);
 
     try {
