@@ -20,6 +20,7 @@ import Badge from "../components/common/Badge";
 import Modal from "../components/common/Modal";
 import { useToast } from "../components/common/Toast";
 import SearchableSelect from "../components/common/SearchableSelect";
+import SearchablePlotSelect from "../components/common/SearchablePlotSelect";
 
 const DISPLAY = { fontFamily: "'Fraunces', Georgia, serif" };
 const GOLD = "#e4c48a";
@@ -53,6 +54,8 @@ const EMPTY_FORM = {
   country_code: "IN",
   notes: "",
   brokerId: 1,
+  projectId: "",
+  plotId: "",
 };
 
 const PAGE_SIZE = 10;
@@ -215,6 +218,7 @@ export default function LeadsInfo() {
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [brokerOption, setBrokerOptions] = useState([]);
+  const [projectOption, setProjeOptions] = useState([]);
   // Fetch leads from the backend.
   const loadLeads = useCallback(async () => {
     setLoading(true);
@@ -258,10 +262,34 @@ export default function LeadsInfo() {
       );
     }
   };
+  const getAllProjects = async () => {
+    try {
+      const res = await axios.get("/api/plots/projects", {
+        withCredentials: true,
+      });
+
+      if (res.status === 200) {
+        const projectList = res.data.data.projects;
+        setProjeOptions(
+          projectList.map((broker) => ({
+            value: broker.id,
+            label: broker.name,
+          })),
+        );
+      }
+    } catch (error) {
+      console.error(
+        "API Error:",
+        error.response?.status,
+        error.response?.data || error.message,
+      );
+    }
+  };
 
   useEffect(() => {
     loadLeads();
     getAllBrokers();
+    getAllProjects();
   }, [loadLeads]);
 
   const updateField = (field, value) => {
@@ -429,6 +457,8 @@ export default function LeadsInfo() {
           .toUpperCase() || "IN",
       notes: String(form.notes ?? "").trim() || null,
       brokerId: Number(form.brokerId) || 1,
+      projectId: Number(form.projectId) || null,
+      plotId: Number(form.plotId) || null,
     };
 
     setSaving(true);
@@ -870,6 +900,7 @@ export default function LeadsInfo() {
                 }
                 required
               />
+
               <div>
                 <Input
                   label="Mobile number"
@@ -889,6 +920,36 @@ export default function LeadsInfo() {
                   </p>
                 )}
               </div>
+
+              <SearchableSelect
+                label="Select Project"
+                name="projectId"
+                placeholder="Choose a project"
+                searchPlaceholder="Search projects..."
+                options={projectOption}
+                value={form.projectId}
+                onChange={(event) => {
+                  const projectId = event.target.value;
+
+                  updateField("projectId", projectId);
+                  updateField("plotId", "");
+                }}
+                required
+              />
+
+              <SearchablePlotSelect
+                label="Select Plot"
+                name="plotId"
+                placeholder={
+                  form.projectId ? "Choose a plot" : "Select a project first"
+                }
+                searchPlaceholder="Search plots..."
+                projectId={form.projectId}
+                value={form.plotId}
+                onChange={(event) => updateField("plotId", event.target.value)}
+                disabled={!form.projectId}
+                required
+              />
 
               <div>
                 <Input
