@@ -15,6 +15,8 @@ import ProtectedRoute from "./components/common/ProtectedRoute";
 import Projects from "./pages/Projects";
 import Leads from "./pages/Leads";
 import Brokers from "./pages/Brokers";
+import Unauthorized from "./pages/Unauthorized";
+import Bookings from "./pages/Bookings";
 
 export default function App() {
   return (
@@ -23,9 +25,10 @@ export default function App() {
         {/* Public routes */}
         <Route path="/" element={<LandingPage />} />
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/unauthorized" element={<Unauthorized />} />
 
         {/* Protected admin routes */}
-        <Route element={<ProtectedRoute />}>
+        <Route element={<ProtectedRoute allowedRoles={["admin"]} />}>
           <Route path="/admin" element={<AdminLayout />}>
             <Route index element={<Navigate to="dashboard" replace />} />
             <Route path="dashboard" element={<DashboardPage />} />
@@ -33,6 +36,7 @@ export default function App() {
             <Route path="leads" element={<Leads />} />
             <Route path="brokers" element={<Brokers />} />
             <Route path="plots" element={<Plots />} />
+            <Route path="bookings" element={<Bookings />} />
             <Route path="customers" element={<Customers />} />
             <Route path="payments" element={<PaymentsPage />} />
             <Route path="layout" element={<ComingSoonPage />} />

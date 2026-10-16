@@ -1,0 +1,122 @@
+.app-swal-popup {
+  width: min(28rem, calc(100vw - 2rem)) !important;
+  padding: 1.75rem 1.5rem 1.5rem !important;
+  border: 1px solid #e3e9e0 !important;
+  border-radius: 1.25rem !important;
+  background: #ffffff !important;
+  box-shadow: 0 24px 70px rgba(6, 42, 32, 0.2) !important;
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif !important;
+}
+
+.app-swal-title {
+  margin-top: 0.75rem !important;
+  color: #14231d !important;
+  font-family: "Fraunces", Georgia, serif !important;
+  font-size: 1.45rem !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.025em !important;
+}
+
+.app-swal-message {
+  margin-top: 0.6rem !important;
+  color: #5b6b63 !important;
+  font-size: 0.875rem !important;
+  line-height: 1.6 !important;
+}
+
+.app-swal-actions {
+  gap: 0.625rem !important;
+  margin-top: 1.5rem !important;
+}
+
+.app-swal-confirm,
+.app-swal-cancel,
+.app-swal-deny {
+  min-height: 2.625rem;
+  padding: 0.7rem 1.1rem;
+  border: 1px solid transparent;
+  border-radius: 0.75rem;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  line-height: 1.2;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    transform 160ms ease;
+  cursor: pointer;
+}
+
+.app-swal-confirm {
+  background: #0b3d2e;
+  color: #ffffff;
+}
+
+.app-swal-confirm:hover {
+  background: #14523f;
+}
+
+.app-swal-cancel {
+  border-color: #dfe5dc;
+  background: #ffffff;
+  color: #3f4f48;
+}
+
+.app-swal-cancel:hover {
+  border-color: #aebbb1;
+  background: #f4f7f2;
+}
+
+.app-swal-deny {
+  background: #b42318;
+  color: #ffffff;
+}
+
+.app-swal-deny:hover {
+  background: #912018;
+}
+
+.app-swal-confirm:focus-visible,
+.app-swal-cancel:focus-visible,
+.app-swal-deny:focus-visible {
+  outline: 3px solid rgba(27, 122, 90, 0.25);
+  outline-offset: 2px;
+}
+
+.app-swal-popup .swal2-icon.swal2-warning {
+  border-color: #e4c48a;
+  color: #a66a00;
+}
+
+.app-swal-popup .swal2-icon.swal2-success {
+  border-color: #1b7a5a;
+  color: #1b7a5a;
+}
+
+.app-swal-popup .swal2-icon.swal2-error {
+  border-color: #b42318;
+  color: #b42318;
+}
+
+@media (max-width: 420px) {
+  .app-swal-popup {
+    padding: 1.5rem 1rem 1.125rem !important;
+  }
+
+  .app-swal-actions {
+    flex-direction: column-reverse;
+    width: 100%;
+  }
+
+  .app-swal-confirm,
+  .app-swal-cancel,
+  .app-swal-deny {
+    width: 100%;
+  }
+}

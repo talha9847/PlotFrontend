@@ -1,6 +1,12 @@
 import { forwardRef, useId } from "react";
 import { ChevronDown } from "lucide-react";
 
+const sizes = {
+  xs: "min-h-8 px-3 text-xs",
+  sm: "min-h-9 px-3.5 text-xs",
+  md: "min-h-[52px] py-3 pl-4 pr-11 text-sm",
+};
+
 const Select = forwardRef(function Select(
   {
     label,
@@ -10,6 +16,7 @@ const Select = forwardRef(function Select(
     hint,
     id,
     required = false,
+    size = "md",
     className = "",
     wrapperClassName = "",
     ...props
@@ -36,6 +43,7 @@ const Select = forwardRef(function Select(
           {required && <span className="sr-only"> (required)</span>}
         </label>
       )}
+
       <div className="group relative">
         <select
           ref={ref}
@@ -43,14 +51,15 @@ const Select = forwardRef(function Select(
           required={required}
           aria-invalid={!!error}
           aria-describedby={error || hint ? helpId : undefined}
-          className={`block min-h-[52px] w-full cursor-pointer appearance-none rounded-xl border bg-white py-3 pl-4 pr-11 text-sm font-medium text-[#14231d] outline-none transition duration-150 focus:ring-4 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500 ${
+          className={`block w-full cursor-pointer appearance-none rounded-xl border bg-white font-medium text-[#14231d] outline-none transition duration-150 focus:ring-4 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500 ${
             error
               ? "border-rose-300 focus:border-rose-500 focus:ring-rose-100"
               : "border-[#dfe5dc] hover:border-[#c3d0bf] focus:border-[#1b7a5a] focus:ring-[#1b7a5a]/15"
-          } ${className}`}
+          } ${sizes[size] || sizes.md} ${className}`}
           {...props}
         >
           <option value="">{placeholder}</option>
+
           {options.map((option) =>
             typeof option === "string" ? (
               <option key={option} value={option}>
@@ -67,17 +76,21 @@ const Select = forwardRef(function Select(
             ),
           )}
         </select>
+
         <ChevronDown
           aria-hidden="true"
           size={16}
-          className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 transition group-focus-within:text-[#1b7a5a]"
+          className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 transition group-focus-within:text-[#1b7a5a]"
         />
       </div>
+
       {(error || hint) && (
         <p
           id={helpId}
           role={error ? "alert" : undefined}
-          className={`mt-1.5 text-xs leading-5 ${error ? "font-medium text-rose-600" : "text-slate-500"}`}
+          className={`mt-1.5 text-xs leading-5 ${
+            error ? "font-medium text-rose-600" : "text-slate-500"
+          }`}
         >
           {error || hint}
         </p>

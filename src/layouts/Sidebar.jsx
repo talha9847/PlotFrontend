@@ -16,6 +16,7 @@ import {
   LogOut,
   ArrowUpRight,
   Command,
+  ClipboardCheck,
 } from "lucide-react";
 import Brand from "../components/common/Brand";
 
@@ -35,6 +36,7 @@ const groups = [
       { to: "/admin/brokers", label: "Brokers", icon: Users },
       { to: "/admin/leads", label: "Leads", icon: Users },
       { to: "/admin/plots", label: "Plot inventory", icon: Grid2X2 },
+      { to: "/admin/bookings", label: "Bookings", icon: ClipboardCheck },
       { to: "/admin/layout", label: "Layout editor", icon: Map },
       { to: "/admin/customers", label: "Customers.", icon: Users },
       {

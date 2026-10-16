@@ -22,9 +22,8 @@ export function AuthProvider({ children }) {
         withCredentials: true,
       });
 
-      console.log(response.data);
       const currentUser = response.data.data?.user ?? response.data.data;
-
+      console.log(currentUser);
       setUser(currentUser);
       return currentUser;
     } catch (error) {
