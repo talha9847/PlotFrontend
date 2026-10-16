@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   CalendarDays,
   CheckCircle2,
+  CheckCircle,
   Clock3,
   IndianRupee,
   MapPin,
@@ -12,6 +13,7 @@ import {
   ChevronLeft,
   ChevronRight,
   RefreshCw,
+  Wallet,
 } from "lucide-react";
 import axios from "axios";
 
@@ -166,6 +168,128 @@ function DetailLine({ icon: Icon, children }) {
 export default function Bookings() {
   const toast = useToast();
 
+  const [confirmErrors, setConfirmErrors] = useState({});
+  const FREQUENCIES = [
+    "weekly",
+    "monthly",
+    "quarterly",
+    "half_yearly",
+    "yearly",
+    "milestone",
+    "custom",
+  ];
+  const PLAN_STATUSES = ["active", "completed", "cancelled"];
+
+  const formatINRInput = (value) => {
+    if (value === "" || value == null) return "";
+
+    const number = Number(value);
+
+    if (!Number.isFinite(number)) return "";
+
+    return new Intl.NumberFormat("en-IN", {
+      maximumFractionDigits: 2,
+    }).format(number);
+  };
+  const isValidDate = (value) => {
+    if (!value) return false;
+
+    // HTML date input returns YYYY-MM-DD
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+
+    if (!match) return false;
+
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+
+    const date = new Date(year, month - 1, day);
+
+    return (
+      date.getFullYear() === year &&
+      date.getMonth() === month - 1 &&
+      date.getDate() === day
+    );
+  };
+
+  const validateConfirmField = (name, value, form = confirmForm) => {
+    const totalAmount = Number(confirmingBooking?.total_amount);
+
+    switch (name) {
+      case "down_payment": {
+        if (value === "") return "Down payment is required.";
+
+        const amount = Number(value);
+
+        if (!Number.isFinite(amount) || amount <= 0) {
+          return "Down payment must be greater than 0.";
+        }
+
+        if (amount > totalAmount) {
+          return "Down payment cannot exceed the total amount.";
+        }
+
+        return "";
+      }
+
+      case "installment_count": {
+        if (value === "") return "Number of installments is required.";
+
+        const count = Number(value);
+
+        if (!Number.isInteger(count) || count <= 0) {
+          return "Enter a positive whole number.";
+        }
+
+        return "";
+      }
+
+      case "status":
+        return PLAN_STATUSES.includes(value)
+          ? ""
+          : "Select a valid plan status.";
+      case "frequency":
+        return FREQUENCIES.includes(value)
+          ? ""
+          : "Select a valid plan frequency.";
+
+      case "start_date":
+        if (!value) return "Payment date is required.";
+        return isValidDate(value) ? "" : "Enter a valid payment date.";
+
+      case "start_date":
+        if (!value) return "Installment start date is required.";
+        if (!isValidDate(value)) return "Enter a valid start date.";
+
+        if (isValidDate(form.start_date) && value < form.start_date) {
+          return "Start date cannot be before the payment date.";
+        }
+
+        return "";
+
+      case "notes":
+        return String(value ?? "").length > 2000
+          ? "Notes cannot exceed 2,000 characters."
+          : "";
+
+      default:
+        return "";
+    }
+  };
+
+  const handleConfirmFieldChange = (name, value) => {
+    const updatedForm = {
+      ...confirmForm,
+      [name]: value,
+    };
+
+    setConfirmForm(updatedForm);
+
+    setConfirmErrors((current) => ({
+      ...current,
+      [name]: validateConfirmField(name, value, updatedForm),
+    }));
+  };
   const [bookings, setBookings] = useState([]);
   const [stats, setStats] = useState(EMPTY_STATS);
   const [pagination, setPagination] = useState(EMPTY_PAGINATION);
@@ -184,19 +308,23 @@ export default function Bookings() {
   const [confirmModalOpen, setConfirmModalOpen] = useState(false);
   const [confirmingBooking, setConfirmingBooking] = useState(null);
   const [confirmForm, setConfirmForm] = useState({
-    booking_amount: "",
-    payment_date: new Date().toISOString().slice(0, 10),
+    down_payment: "",
+    installment_count: "24",
+    frequency: "monthly",
+    start_date: "",
+    status: "active",
     notes: "",
+    lead_id: "",
   });
   const [savingConfirmation, setSavingConfirmation] = useState(false);
 
   const openConfirmModal = (booking) => {
+    console.log(booking);
     setConfirmingBooking(booking);
 
     setConfirmForm({
-      booking_amount: booking.booking_amount ?? "",
-      payment_date: new Date().toISOString().slice(0, 10),
-      notes: booking.notes || "",
+      ...confirmForm,
+      lead_id: booking.lead_id,
     });
 
     setConfirmModalOpen(true);
@@ -212,26 +340,82 @@ export default function Bookings() {
   const handleConfirmBooking = async (event) => {
     event.preventDefault();
 
-    if (!confirmingBooking) return;
+    if (!confirmingBooking || savingConfirmation) return;
 
-    const amount = Number(confirmForm.booking_amount);
+    const fields = [
+      "lead_id",
+      "down_payment",
+      "installment_count",
+      "frequency",
+      "start_date",
+      "status",
+      "notes",
+    ];
 
-    if (!Number.isFinite(amount) || amount < 0) {
-      toast("Enter a valid booking amount.", "error");
+    const errors = {};
+
+    fields.forEach((name) => {
+      const error = validateConfirmField(name, confirmForm[name], confirmForm);
+
+      if (error) errors[name] = error;
+    });
+
+    setConfirmErrors(errors);
+
+    if (Object.keys(errors).length > 0) {
+      toast("Please fix the validation errors.", "error");
       return;
     }
+    try {
+      setSavingConfirmation(true);
 
-    if (amount > Number(confirmingBooking.total_amount)) {
-      toast("Booking amount cannot exceed the total amount.", "error");
-      return;
+      const res = await axios.post(
+        `/api/bookings/confirm/${confirmingBooking.uuid}`,
+        {
+          down_payment: confirmForm.down_payment,
+          installment_count: confirmForm.installment_count,
+          frequency: confirmForm.frequency,
+          start_date: confirmForm.start_date,
+          status: confirmForm.status,
+          notes: confirmForm.notes,
+        },
+        {
+          withCredentials: true,
+        },
+      );
+      if (res.status == 201 || res.status == 200) {
+        await fetchBookings();
+        toast(
+          res.data?.message || "Booking confirmed successfully.",
+          "success",
+        );
+        setConfirmModalOpen(false);
+        setConfirmingBooking(null);
+        setConfirmErrors({});
+
+        // Reset the confirmation form if you have a shared initial state.
+        setConfirmForm({
+          down_payment: "",
+          installment_count: "24",
+          frequency: "monthly",
+          start_date: "",
+          status: "active",
+          notes: "",
+          lead_id: "",
+        });
+        // Refresh the bookings list.
+      }
+    } catch (error) {
+      console.error("Confirm booking error:", error);
+
+      toast(
+        error.response?.data?.message ||
+          "Failed to confirm booking. Please try again.",
+        "error",
+      );
+    } finally {
+      setSavingConfirmation(false);
     }
-
-    // Your current backend only has the GET bookings endpoint.
-    // Add a confirmation/update endpoint before saving these fields.
-    toast(
-      "The confirmation form is ready. Connect the booking update API to save it.",
-      "info",
-    );
   };
 
   const handleCancelBooking = async (booking) => {
@@ -380,7 +564,6 @@ export default function Bookings() {
           Refresh
         </Button>
       </header>
-
       {/* Statistics from API */}
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
@@ -400,7 +583,6 @@ export default function Bookings() {
 
         <StatCard icon={XCircle} label="Cancelled" value={stats.cancelled} />
       </section>
-
       {/* Booking table */}
       <section className="overflow-hidden rounded-2xl border border-[#e3e9e0] bg-white shadow-sm shadow-[#062a20]/[0.03]">
         <div className="border-b border-[#eef2ec] p-5">
@@ -639,15 +821,6 @@ export default function Bookings() {
                             </Button>
                           </>
                         )}
-
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          onClick={() => openDetails(booking)}
-                        >
-                          <FileText size={14} />
-                          Details
-                        </Button>
                       </div>
                     </td>
                   </tr>
@@ -719,7 +892,6 @@ export default function Bookings() {
           </div>
         </div>
       </section>
-
       {/* Booking details modal */}
       <Modal
         open={detailsOpen}
@@ -839,15 +1011,14 @@ export default function Bookings() {
           </div>
         )}
       </Modal>
-
       <Modal
         open={confirmModalOpen}
         onClose={closeConfirmModal}
         size="lg"
         title="Confirm booking"
-        description="Review the booking and enter payment details before confirming."
+        description="Review the booking details, record the payment, and configure the installment plan."
         footer={
-          <div className="flex w-full justify-end gap-3">
+          <div className="flex w-full flex-col-reverse gap-3 sm:flex-row sm:justify-end">
             <Button
               variant="secondary"
               onClick={closeConfirmModal}
@@ -860,8 +1031,8 @@ export default function Bookings() {
               onClick={handleConfirmBooking}
               disabled={savingConfirmation}
             >
-              <CheckCircle2 size={16} />
-              Confirm booking
+              <CheckCircle2 size={16} className="mr-2" />
+              {savingConfirmation ? "Confirming..." : "Confirm booking"}
             </Button>
           </div>
         }
@@ -870,65 +1041,255 @@ export default function Bookings() {
           <form
             id="confirm-booking-form"
             onSubmit={handleConfirmBooking}
-            className="space-y-5"
+            className="space-y-6"
           >
-            <div className="rounded-xl bg-[#f4f7f2] p-4">
-              <p className="text-xs text-[#5b6b63]">Booking number</p>
+            {/* Booking summary */}
+            <section className="overflow-hidden rounded-2xl border border-[#e1e8e2]">
+              <div className="flex items-start justify-between gap-3 border-b border-[#e8ede8] bg-[#f7f9f6] p-4 sm:p-5">
+                <div className="min-w-0">
+                  <p className="text-xs font-medium uppercase tracking-wider text-[#718078]">
+                    Booking reference
+                  </p>
 
-              <p className="mt-1 font-bold text-[#14231d]">
-                {confirmingBooking.booking_number}
-              </p>
+                  <h3 className="mt-1 break-words text-lg font-bold text-[#14231d]">
+                    {confirmingBooking.booking_number}
+                  </h3>
+                </div>
 
-              <p className="mt-2 text-sm text-[#5b6b63]">
-                {confirmingBooking.customer_name} ·{" "}
-                {confirmingBooking.project_name} · Plot{" "}
-                {confirmingBooking.plot_number}
-              </p>
+                <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700 ring-1 ring-inset ring-amber-200">
+                  <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                  Pending
+                </span>
+              </div>
 
-              <p className="mt-2 text-sm font-semibold text-[#14231d]">
-                Total: {formatINR(confirmingBooking.total_amount)}
-              </p>
-            </div>
+              <div className="space-y-4 p-4 sm:p-5">
+                <div>
+                  <p className="text-xs font-medium text-[#718078]">Customer</p>
+                  <p className="mt-1 font-semibold text-[#14231d]">
+                    {confirmingBooking.customer_name}
+                  </p>
+                </div>
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Input
-                label="Booking amount received (₹)"
-                name="booking_amount"
-                type="number"
-                min="0"
-                max={confirmingBooking.total_amount}
-                value={confirmForm.booking_amount}
-                onChange={(event) =>
-                  setConfirmForm((current) => ({
-                    ...current,
-                    booking_amount: event.target.value,
-                  }))
-                }
-                placeholder="Enter amount"
-                required
-              />
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div>
+                    <p className="text-xs font-medium text-[#718078]">
+                      Project
+                    </p>
+                    <p className="mt-1 text-sm font-medium text-[#263a30]">
+                      {confirmingBooking.project_name}
+                    </p>
+                  </div>
 
-              <Input
-                label="Payment date"
-                name="payment_date"
-                type="date"
-                value={confirmForm.payment_date}
-                onChange={(event) =>
-                  setConfirmForm((current) => ({
-                    ...current,
-                    payment_date: event.target.value,
-                  }))
-                }
-                required
-              />
-            </div>
+                  <div>
+                    <p className="text-xs font-medium text-[#718078]">
+                      Plot number
+                    </p>
+                    <p className="mt-1 text-sm font-medium text-[#263a30]">
+                      {confirmingBooking.plot_number}
+                    </p>
+                  </div>
+                </div>
+              </div>
 
-            <div>
+              {/* Price breakdown */}
+              <div className="border-t border-[#e8ede8] p-4 sm:p-5">
+                <h4 className="mb-3 text-sm font-semibold text-[#14231d]">
+                  Price breakdown
+                </h4>
+
+                <div className="space-y-3 text-sm">
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-[#718078]">Agreed price</span>
+                    <span className="font-medium tabular-nums text-[#263a30]">
+                      {formatINR(confirmingBooking.agreed_price)}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-[#718078]">Discount</span>
+                    <span className="font-medium tabular-nums text-emerald-700">
+                      −{formatINR(confirmingBooking.discount_amount)}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-[#718078]">Tax</span>
+                    <span className="font-medium tabular-nums text-[#263a30]">
+                      {formatINR(confirmingBooking.tax_amount)}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="mt-4 flex items-center justify-between gap-4 rounded-xl bg-[#edf5ef] p-4">
+                  <div>
+                    <p className="text-sm font-semibold text-[#244533]">
+                      Total booking value
+                    </p>
+                    <p className="mt-0.5 text-xs text-[#617568]">
+                      Final amount payable
+                    </p>
+                  </div>
+
+                  <p className="text-xl font-bold tabular-nums text-[#176344]">
+                    {formatINR(confirmingBooking.total_amount)}
+                  </p>
+                </div>
+              </div>
+            </section>
+
+            {/* Initial payment */}
+
+            {/* Installment plan */}
+            <section className="space-y-4 rounded-2xl border border-[#e1e8e2] bg-[#fafbf9] p-4 sm:p-5">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Wallet size={18} className="text-[#1b7a5a]" />
+                  <h3 className="text-base font-semibold text-[#14231d]">
+                    Installment plan
+                  </h3>
+                </div>
+
+                <p className="mt-1 text-sm text-[#718078]">
+                  Configure how the remaining balance will be paid.
+                </p>
+              </div>
+
+              <div className="sm:col-span-2">
+                <Input
+                  label="Down Payment"
+                  name="down_payment"
+                  type="text"
+                  inputMode="decimal"
+                  value={formatINRInput(confirmForm.down_payment)}
+                  onChange={(event) => {
+                    const rawValue = event.target.value.replace(/,/g, "");
+
+                    if (rawValue === "" || /^\d*\.?\d{0,2}$/.test(rawValue)) {
+                      setConfirmForm((current) => ({
+                        ...current,
+                        down_payment: rawValue,
+                      }));
+
+                      handleConfirmFieldChange("down_payment", rawValue);
+                    }
+                  }}
+                  error={confirmErrors.down_payment}
+                  placeholder="Enter down payment"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <Input
+                  label="Number of installments"
+                  name="installment_count"
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={confirmForm.installment_count}
+                  onChange={(event) =>
+                    handleConfirmFieldChange(
+                      "installment_count",
+                      event.target.value,
+                    )
+                  }
+                  error={confirmErrors.installment_count}
+                  placeholder="e.g. 12"
+                  required
+                />
+                <Select
+                  label="Payment frequency"
+                  name="frequency"
+                  value={confirmForm.frequency}
+                  onChange={(event) =>
+                    handleConfirmFieldChange("frequency", event.target.value)
+                  }
+                  error={confirmErrors.frequency}
+                  options={[
+                    { value: "weekly", label: "Weekly" },
+                    { value: "monthly", label: "Monthly" },
+                    { value: "quarterly", label: "Quarterly" },
+                    { value: "half_yearly", label: "Half-yearly" },
+                    { value: "yearly", label: "Yearly" },
+                    { value: "milestone", label: "Milestone-based" },
+                    { value: "custom", label: "Custom" },
+                  ]}
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <Input
+                  label="Installment start date"
+                  name="start_date"
+                  type="date"
+                  min={confirmForm.start_date || undefined}
+                  value={confirmForm.start_date}
+                  onChange={(event) =>
+                    handleConfirmFieldChange("start_date", event.target.value)
+                  }
+                  error={confirmErrors.start_date}
+                  required
+                />
+
+                <Select
+                  label="Plan status"
+                  name="status"
+                  size="md"
+                  placeholder="Select status"
+                  value={confirmForm.status}
+                  onChange={(event) =>
+                    handleConfirmFieldChange("status", event.target.value)
+                  }
+                  error={confirmErrors.status}
+                  options={[
+                    { value: "active", label: "Active" },
+                    { value: "completed", label: "Completed" },
+                    { value: "cancelled", label: "Cancelled" },
+                  ]}
+                  required
+                />
+              </div>
+
+              <div className="flex items-center justify-between gap-4 rounded-xl border border-[#e1e8e2] bg-white px-4 py-3">
+                <div>
+                  <p className="text-sm font-medium text-[#53645a]">
+                    Remaining balance
+                  </p>
+                  <p className="mt-0.5 text-xs text-[#89958d]">
+                    After the initial payment
+                  </p>
+                </div>
+
+                <div className="text-right">
+                  <span className="block text-base font-bold tabular-nums text-[#14231d]">
+                    {formatINR(
+                      Math.max(
+                        0,
+                        Number(confirmingBooking.total_amount || 0) -
+                          Math.max(0, Number(confirmForm.booking_amount || 0)),
+                      ),
+                    )}
+                  </span>
+
+                  <span className="mt-1 block text-xs font-medium text-[#89958d]">
+                    Booking amount:{" "}
+                    {formatINR(
+                      Math.max(0, Number(confirmForm.booking_amount || 0)),
+                    )}
+                  </span>
+                </div>
+              </div>
+            </section>
+
+            {/* Notes */}
+            <section>
               <label
                 htmlFor="confirmation-notes"
-                className="mb-1.5 block text-sm font-medium text-[#14231d]"
+                className="mb-1.5 block text-sm font-semibold text-[#263a30]"
               >
-                Notes (optional)
+                Notes{" "}
+                <span className="font-normal text-[#89958d]">(optional)</span>
               </label>
 
               <textarea
@@ -937,15 +1298,12 @@ export default function Bookings() {
                 rows={3}
                 value={confirmForm.notes}
                 onChange={(event) =>
-                  setConfirmForm((current) => ({
-                    ...current,
-                    notes: event.target.value,
-                  }))
+                  handleConfirmFieldChange("notes", event.target.value)
                 }
                 placeholder="Add payment or confirmation notes..."
-                className="w-full rounded-xl border border-[#dfe5dc] bg-white px-3.5 py-3 text-sm outline-none transition focus:border-[#1b7a5a] focus:ring-2 focus:ring-[#1b7a5a]/10"
+                className="w-full resize-y rounded-xl border border-[#dfe5dc] bg-white px-3.5 py-3 text-sm text-[#14231d] outline-none transition placeholder:text-[#9aa59d] focus:border-[#1b7a5a] focus:ring-4 focus:ring-[#1b7a5a]/10"
               />
-            </div>
+            </section>
           </form>
         )}
       </Modal>
