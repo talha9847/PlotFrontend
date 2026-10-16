@@ -608,12 +608,21 @@ export default function LeadsInfo() {
         )}
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[820px] text-left text-sm">
+          <table className="w-full min-w-[1250px] table-fixed text-left text-sm">
+            <colgroup>
+              <col className="w-[210px]" /> {/* Lead */}
+              <col className="w-[115px]" /> {/* Lead Type */}
+              <col className="w-[145px]" /> {/* Broker */}
+              <col className="w-[165px]" /> {/* Project */}
+              <col className="w-[120px]" /> {/* Plot */}
+              <col className="w-[210px]" /> {/* Location */}
+              <col className="w-[120px]" /> {/* Created */}
+              <col className="w-[110px]" /> {/* Actions */}
+            </colgroup>
             <thead>
               <tr className="bg-[#f4f7f2] text-[10px] font-bold uppercase tracking-[0.14em] text-[#5b6b63]">
                 {[
                   "Lead",
-                  "Contact",
                   "Lead type",
                   "Broker",
                   "Project",
@@ -628,13 +637,12 @@ export default function LeadsInfo() {
                 ))}
               </tr>
             </thead>
-
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="px-5 py-16 text-center">
+                  <td colSpan={8} className="px-5 py-16 text-center">
                     <LoaderCircle
-                      size={22}
+                      size={24}
                       className="mx-auto animate-spin text-[#1b7a5a]"
                     />
                     <p className="mt-3 text-sm text-[#5b6b63]">
@@ -663,39 +671,45 @@ export default function LeadsInfo() {
                           </span>
 
                           <div className="min-w-0">
-                            <p className="max-w-[220px] truncate font-bold text-[#14231d]">
+                            {/* Lead name */}
+                            <p
+                              className="max-w-[220px] truncate font-bold text-[#14231d]"
+                              title={leads.name}
+                            >
                               {leads.name}
                             </p>
 
+                            {/* Phone number */}
+                            {leads.phone && (
+                              <p
+                                className="mt-0.5 max-w-[220px] truncate text-xs text-[#5b6b63]"
+                                title={leads.phone}
+                              >
+                                {leads.phone}
+                              </p>
+                            )}
+
+                            {/* Email */}
+                            {leads.email && (
+                              <p
+                                className="mt-0.5 max-w-[220px] truncate text-xs text-[#5b6b63]"
+                                title={leads.email}
+                              >
+                                {leads.email}
+                              </p>
+                            )}
+
+                            {/* Company name */}
                             {leads.company_name &&
                               leads.company_name !== leads.name && (
-                                <p className="mt-0.5 max-w-[220px] truncate text-xs text-[#5b6b63]">
+                                <p
+                                  className="mt-0.5 max-w-[220px] truncate text-xs text-[#8a958e]"
+                                  title={leads.company_name}
+                                >
                                   {leads.company_name}
                                 </p>
                               )}
-
-                            {leads.notes && (
-                              <p className="mt-0.5 max-w-[220px] truncate text-xs text-[#8a958e]">
-                                {leads.notes}
-                              </p>
-                            )}
                           </div>
-                        </div>
-                      </td>
-
-                      <td className="px-5 py-4">
-                        <div className="space-y-1.5">
-                          <Detail icon={Phone}>{leads.phone}</Detail>
-
-                          {leads.alternate_phone && (
-                            <Detail icon={Phone}>
-                              {leads.alternate_phone}
-                            </Detail>
-                          )}
-
-                          {leads.email && (
-                            <Detail icon={Mail}>{leads.email}</Detail>
-                          )}
                         </div>
                       </td>
 
@@ -710,13 +724,16 @@ export default function LeadsInfo() {
                           {titleCase(leads.leads_type || "other")}
                         </Badge>
                       </td>
-                      <td className="px-5 py-4">
-                        <div className="flex items-center gap-2">
+                      <td className="overflow-hidden px-5 py-4">
+                        <div className="flex min-w-0 items-center gap-2">
                           <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#e9f3ee] text-xs font-bold text-[#1b7a5a]">
                             {initials(leads.broker_name || "Admin")}
                           </span>
 
-                          <span className="font-medium text-[#14231d]">
+                          <span
+                            className="truncate font-medium text-[#14231d]"
+                            title={leads.broker_name || "Admin"}
+                          >
                             {leads.broker_name || "Admin"}
                           </span>
                         </div>
@@ -778,7 +795,7 @@ export default function LeadsInfo() {
 
               {!loading && visibleLeads.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-5 py-16 text-center">
+                  <td colSpan={8} className="px-5 py-16 text-center">
                     <span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-[#e9f3ee] text-[#1b7a5a]">
                       <Search size={20} />
                     </span>
