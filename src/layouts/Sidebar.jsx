@@ -17,6 +17,7 @@ import {
   ArrowUpRight,
   Command,
   ClipboardCheck,
+  Wallet2Icon,
 } from "lucide-react";
 import Brand from "../components/common/Brand";
 
@@ -44,6 +45,7 @@ const groups = [
         icon: CalendarClock,
         badge: "3",
       },
+      { to: "/admin/accounts", label: "Accounts", icon: Wallet2Icon },
       { to: "/admin/layout", label: "Layout editor", icon: Map },
       { to: "/admin/payments", label: "Payments & receipts", icon: Receipt },
     ],

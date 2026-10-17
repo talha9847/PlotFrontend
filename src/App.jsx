@@ -19,6 +19,7 @@ import Unauthorized from "./pages/Unauthorized";
 import Bookings from "./pages/Bookings";
 import CustomerProfile from "./pages/CustomerProfile";
 import Installments from "./pages/Installments";
+import Accounts from "./pages/Accounts";
 
 export default function App() {
   return (
@@ -41,6 +42,7 @@ export default function App() {
             <Route path="bookings" element={<Bookings />} />
             <Route path="customers" element={<Customers />} />
             <Route path="payments" element={<PaymentsPage />} />
+            <Route path="accounts" element={<Accounts />} />
             <Route path="layout" element={<ComingSoonPage />} />
             <Route path="installments" element={<Installments />} />
             <Route path="reminders" element={<ComingSoonPage />} />

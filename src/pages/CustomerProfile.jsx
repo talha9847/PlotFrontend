@@ -21,18 +21,22 @@ import { useLocation, useNavigate } from "react-router-dom";
 import Card from "../components/common/Card";
 import Modal from "../components/common/Modal";
 import Button from "../components/common/Button";
+import Input from "../components/common/Input";
+import Select from "../components/common/Select";
 import Badge from "../components/common/Badge";
 import Loader, { PageLoader } from "../components/common/Loader";
 import OverviewTab from "../components/customers/OverviewTab";
 import PlotsBookingsTab from "../components/customers/PlotsBookingsTab";
 import InstallmentsTab from "../components/customers/InstallmentsTab";
 import PaymentsTab from "../components/customers/PaymentsTab";
+import { useToast } from "../components/common/Toast";
 
 const money = (amount) =>
   new Intl.NumberFormat("en-IN", {
     style: "currency",
     currency: "INR",
-    maximumFractionDigits: 0,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   }).format(Number(amount || 0));
 
 const formatDate = (value) => {
@@ -74,6 +78,7 @@ function StatCard({ icon: Icon, label, value, hint, tone }) {
 export default function CustomerProfile() {
   const navigate = useNavigate();
   const location = useLocation();
+  const toast = useToast();
   const uuid = location.state?.uuid;
 
   const [profile, setProfile] = useState(null);
@@ -83,18 +88,46 @@ export default function CustomerProfile() {
   const [activeTab, setActiveTab] = useState("Overview");
   const [paymentSearch, setPaymentSearch] = useState("");
 
-  // Static/demo payment modal state. This updates the profile only in memory.
+  // Payment modal state.
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [savingPayment, setSavingPayment] = useState(false);
   const [paymentErrors, setPaymentErrors] = useState({});
   const [paymentSuccess, setPaymentSuccess] = useState("");
+  const [accounts, setAccounts] = useState([]);
+
+  const [loadingAccounts, setLoadingAccounts] = useState(false);
   const [paymentForm, setPaymentForm] = useState({
     installment_uuid: "",
     amount: "",
+    account_id: "",
     paid_at: new Date().toISOString().slice(0, 10),
+    payment_method: "",
     notes: "",
   });
 
+  const getAccounts = async () => {
+    setLoadingAccounts(true);
+
+    try {
+      const res = await axios.get("/api/accounts", {
+        withCredentials: true,
+      });
+
+      if (res.status === 200) {
+        setAccounts(res.data?.data?.accounts || []);
+      }
+    } catch (error) {
+      toast(
+        error.response?.data?.message || "Failed to load bank accounts.",
+        "error",
+      );
+    } finally {
+      setLoadingAccounts(false);
+    }
+  };
+  useEffect(() => {
+    getAccounts();
+  }, []);
   const fetchProfile = useCallback(
     async (signal, isRefresh = false) => {
       if (!uuid) {
@@ -154,6 +187,8 @@ export default function CustomerProfile() {
   const upcoming = profile?.upcoming_installments || [];
   const overdue = profile?.overdue_installments || [];
 
+  const payments = profile?.payments || [];
+
   const paidInstallments = useMemo(
     () => installments.filter((item) => item.status === "paid"),
     [installments],
@@ -161,21 +196,24 @@ export default function CustomerProfile() {
 
   const filteredPayments = useMemo(() => {
     const search = paymentSearch.trim().toLowerCase();
-    if (!search) return paidInstallments;
+    if (!search) return payments;
 
-    return paidInstallments.filter((item) =>
+    return payments.filter((payment) =>
       [
-        item.plot_number,
-        item.booking_number,
-        item.installment_number,
-        item.description,
-        item.status,
+        payment.payment_number,
+        payment.booking_number,
+        payment.plot_number,
+        payment.installment_number,
+        payment.payment_method,
+        payment.payment_status,
+        payment.amount,
+        payment.received_by_name,
       ]
         .join(" ")
         .toLowerCase()
         .includes(search),
     );
-  }, [paidInstallments, paymentSearch]);
+  }, [payments, paymentSearch]);
 
   const payableInstallments = installments.filter((item) =>
     ["pending", "partially_paid", "overdue"].includes(item.status),
@@ -205,16 +243,19 @@ export default function CustomerProfile() {
 
   const openPaymentModal = () => {
     const firstPayable = payableInstallments[0];
+
+    if (!firstPayable) {
+      toast("There are no payable installments for this customer.", "info");
+      return;
+    }
+
     setPaymentForm({
-      installment_uuid: firstPayable
-        ? String(
-            firstPayable.uuid ||
-              firstPayable.installment_uuid ||
-              firstPayable.id,
-          )
-        : "",
+      installment_uuid: String(
+        firstPayable.uuid || firstPayable.installment_uuid || firstPayable.id,
+      ),
       amount: "",
       paid_at: new Date().toISOString().slice(0, 10),
+      payment_method: "",
       notes: "",
     });
     setPaymentErrors({});
@@ -228,109 +269,97 @@ export default function CustomerProfile() {
     setPaymentSuccess("");
   };
 
-  const handleConfirmPayment = (event) => {
+  const handleConfirmPayment = async (event) => {
     event.preventDefault();
 
     const nextErrors = {};
     const amount = Number(paymentForm.amount);
-    const due = selectedInstallment
-      ? Math.max(
-          0,
-          number(selectedInstallment.amount_due) +
-            number(selectedInstallment.late_fee) -
-            number(selectedInstallment.amount_paid),
-        )
-      : 0;
 
-    if (!paymentForm.installment_uuid) {
+    if (!selectedInstallment) {
       nextErrors.installment_uuid = "Select an installment.";
     }
+
     if (!paymentForm.amount.trim() || !Number.isFinite(amount) || amount <= 0) {
-      nextErrors.amount = "Enter a payment amount greater than ₹0.";
-    } else if (amount > due) {
-      nextErrors.amount = `Payment cannot exceed the outstanding amount of ${money(due)}.`;
+      nextErrors.amount = "Enter a valid payment amount greater than ₹0.";
+    } else if (amount > installmentPayable) {
+      nextErrors.amount = `Payment cannot exceed ${money(installmentPayable)}.`;
     }
+
     if (!paymentForm.paid_at) {
       nextErrors.paid_at = "Select the payment date.";
     }
 
+    if (!paymentForm.payment_method) {
+      nextErrors.payment_method = "Select a payment method.";
+    }
+
     setPaymentErrors(nextErrors);
-    if (Object.keys(nextErrors).length) return;
+    if (Object.keys(nextErrors).length > 0) return;
+
+    const installmentId =
+      selectedInstallment.installment_id ?? selectedInstallment.id;
+    const installmentUuid =
+      selectedInstallment.installment_uuid ?? selectedInstallment.uuid;
+    const bookingId = selectedInstallment.booking_id;
+    const customerId = selectedInstallment.customer_id ?? customer?.id;
+
+    if (!installmentId || !installmentUuid || !bookingId || !customerId) {
+      toast(
+        "Required booking, customer, or installment details are missing.",
+        "error",
+      );
+      return;
+    }
+
+    const payload = {
+      amount: amount.toFixed(2),
+      booking_id: Number(bookingId),
+      customer_id: Number(customerId),
+      installment_id: Number(installmentId),
+      installment_uuid: installmentUuid,
+      paid_at: paymentForm.paid_at,
+      payment_method: paymentForm.payment_method,
+      notes: paymentForm.notes.trim(),
+    };
 
     setSavingPayment(true);
 
-    // Static/demo confirmation: update this page's local state only.
-    // Replace this block with your payment API call when the backend is ready.
-    const newAmountPaid = number(selectedInstallment.amount_paid) + amount;
-    const totalPayable =
-      number(selectedInstallment.amount_due) +
-      number(selectedInstallment.late_fee);
-    const newStatus =
-      newAmountPaid >= totalPayable
-        ? "paid"
-        : newAmountPaid > 0
-          ? "partially_paid"
-          : selectedInstallment.status;
+    try {
+      const response = await axios.post("/api/payments/receive", payload, {
+        withCredentials: true,
+      });
 
-    const updatedInstallments = installments.map((item) => {
-      const itemKey = String(item.uuid || item.installment_uuid || item.id);
-      if (itemKey !== paymentForm.installment_uuid) return item;
+      if (response.data?.success === false) {
+        throw new Error(response.data.message || "Unable to record payment.");
+      }
 
-      return {
-        ...item,
-        amount_paid: newAmountPaid,
-        status: newStatus,
-        paid_at: newStatus === "paid" ? paymentForm.paid_at : item.paid_at,
-        notes: paymentForm.notes.trim() || item.notes,
-      };
-    });
+      toast(
+        response.data?.message || "Payment recorded successfully.",
+        "success",
+      );
 
-    const collectedDelta = amount;
-    setProfile((current) => ({
-      ...current,
-      installments: updatedInstallments,
-      upcoming_installments: (current.upcoming_installments || [])
-        .map((item) => {
-          const itemKey = String(item.uuid || item.installment_uuid || item.id);
-          if (itemKey !== paymentForm.installment_uuid) return item;
-          return {
-            ...item,
-            amount_paid: newAmountPaid,
-            status: newStatus,
-            paid_at: newStatus === "paid" ? paymentForm.paid_at : item.paid_at,
-            notes: paymentForm.notes.trim() || item.notes,
-          };
-        })
-        .filter((item) => item.status !== "paid"),
-      overdue_installments: (current.overdue_installments || [])
-        .map((item) => {
-          const itemKey = String(item.uuid || item.installment_uuid || item.id);
-          if (itemKey !== paymentForm.installment_uuid) return item;
-          return {
-            ...item,
-            amount_paid: newAmountPaid,
-            status: newStatus,
-            paid_at: newStatus === "paid" ? paymentForm.paid_at : item.paid_at,
-            notes: paymentForm.notes.trim() || item.notes,
-          };
-        })
-        .filter((item) => item.status === "overdue"),
-      stats: {
-        ...(current.stats || {}),
-        total_collected:
-          number(current.stats?.total_collected) + collectedDelta,
-        outstanding_balance: Math.max(
-          0,
-          number(current.stats?.outstanding_balance) - collectedDelta,
-        ),
-      },
-    }));
+      setPaymentModalOpen(false);
+      setPaymentErrors({});
+      setPaymentSuccess("");
+      setPaymentForm({
+        installment_uuid: "",
+        amount: "",
+        paid_at: new Date().toISOString().slice(0, 10),
+        payment_method: "",
+        notes: "",
+      });
 
-    setSavingPayment(false);
-    setPaymentSuccess(
-      "Payment confirmed in this page for preview only. It has not been saved to the server.",
-    );
-    setPaymentForm((current) => ({ ...current, amount: "" }));
+      await fetchProfile(undefined, true);
+    } catch (error) {
+      toast(
+        error.response?.data?.message ||
+          error.message ||
+          "Unable to record payment. Please try again.",
+        "error",
+      );
+    } finally {
+      setSavingPayment(false);
+    }
   };
 
   if (loading) return <PageLoader label="Loading customer profile..." />;
@@ -580,7 +609,7 @@ export default function CustomerProfile() {
                 )}
                 {tab === "Payments" && (
                   <span className="ml-2 rounded-full bg-[#eef1ec] px-2 py-0.5 text-[10px]">
-                    {paidInstallments.length}
+                    {payments.length}
                   </span>
                 )}
               </button>
@@ -637,10 +666,11 @@ export default function CustomerProfile() {
               <Button
                 type="submit"
                 form="record-customer-payment-form"
-                disabled={savingPayment || payableInstallments.length === 0}
+                loading={savingPayment}
+                disabled={payableInstallments.length === 0}
               >
-                <CheckCircle2 size={16} className="mr-2" />
-                {savingPayment ? "Confirming..." : "Confirm payment"}
+                <CheckCircle2 size={16} />
+                Confirm payment
               </Button>
             </div>
           }
@@ -670,62 +700,43 @@ export default function CustomerProfile() {
               </div>
             ) : (
               <>
-                <div>
-                  <label
-                    htmlFor="payment-installment"
-                    className="mb-1.5 block text-sm font-semibold text-[#263a30]"
-                  >
-                    Installment <span className="text-red-600">*</span>
-                  </label>
-                  <select
-                    id="payment-installment"
-                    name="installment_uuid"
-                    value={paymentForm.installment_uuid}
-                    onChange={(event) =>
-                      handlePaymentFieldChange(
-                        "installment_uuid",
-                        event.target.value,
-                      )
-                    }
-                    className={`w-full rounded-xl border bg-white px-3.5 py-3 text-sm text-[#14231d] outline-none focus:border-[#1b7a5a] focus:ring-4 focus:ring-[#1b7a5a]/10 ${
-                      paymentErrors.installment_uuid
-                        ? "border-red-400"
-                        : "border-[#dfe5dc]"
-                    }`}
-                    aria-invalid={Boolean(paymentErrors.installment_uuid)}
-                  >
-                    <option value="">Select installment</option>
-                    {payableInstallments.map((item) => {
-                      const itemKey = String(
-                        item.uuid || item.installment_uuid || item.id,
-                      );
-                      const balance = Math.max(
-                        0,
-                        number(item.amount_due) +
-                          number(item.late_fee) -
-                          number(item.amount_paid),
-                      );
-                      return (
-                        <option key={itemKey} value={itemKey}>
-                          {item.plot_number
-                            ? `Plot ${item.plot_number} · `
-                            : ""}
-                          {item.booking_number
-                            ? `${item.booking_number} · `
-                            : ""}
-                          Installment #{item.installment_number} ·{" "}
-                          {money(balance)} outstanding
-                        </option>
-                      );
-                    })}
-                  </select>
-                  {paymentErrors.installment_uuid && (
-                    <p className="mt-1.5 text-xs text-red-600">
-                      {paymentErrors.installment_uuid}
-                    </p>
-                  )}
-                </div>
+                <Select
+                  id="payment-installment"
+                  name="installment_uuid"
+                  label="Installment"
+                  placeholder="Select installment"
+                  required
+                  value={paymentForm.installment_uuid}
+                  error={paymentErrors.installment_uuid}
+                  onChange={(event) =>
+                    handlePaymentFieldChange(
+                      "installment_uuid",
+                      event.target.value,
+                    )
+                  }
+                  options={payableInstallments.map((item) => {
+                    const itemKey = String(
+                      item.uuid || item.installment_uuid || item.id,
+                    );
+                    const balance = Math.max(
+                      0,
+                      number(item.amount_due) +
+                        number(item.late_fee) -
+                        number(item.amount_paid),
+                    );
 
+                    const label = [
+                      item.plot_number ? `Plot ${item.plot_number}` : "",
+                      item.booking_number || "",
+                      `Installment #${item.installment_number}`,
+                      `${money(balance)} outstanding`,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ");
+
+                    return { value: itemKey, label };
+                  })}
+                />
                 {selectedInstallment && (
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                     <div className="rounded-xl border border-[#e1e8e2] p-3">
@@ -748,100 +759,94 @@ export default function CustomerProfile() {
                     </div>
                   </div>
                 )}
-
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <div>
-                    <label
-                      htmlFor="payment-amount"
-                      className="mb-1.5 block text-sm font-semibold text-[#263a30]"
-                    >
-                      Payment amount (INR){" "}
-                      <span className="text-red-600">*</span>
-                    </label>
-                    <input
-                      id="payment-amount"
-                      name="amount"
-                      type="number"
-                      min="0.01"
-                      max={installmentPayable || undefined}
-                      step="0.01"
-                      inputMode="decimal"
-                      value={paymentForm.amount}
-                      onChange={(event) =>
-                        handlePaymentFieldChange("amount", event.target.value)
-                      }
-                      placeholder="Enter amount"
-                      className={`w-full rounded-xl border bg-white px-3.5 py-3 text-sm text-[#14231d] outline-none focus:border-[#1b7a5a] focus:ring-4 focus:ring-[#1b7a5a]/10 ${
-                        paymentErrors.amount
-                          ? "border-red-400"
-                          : "border-[#dfe5dc]"
-                      }`}
-                      aria-invalid={Boolean(paymentErrors.amount)}
-                    />
-                    {paymentErrors.amount && (
-                      <p className="mt-1.5 text-xs text-red-600">
-                        {paymentErrors.amount}
-                      </p>
-                    )}
-                  </div>
-
-                  <div>
-                    <label
-                      htmlFor="payment-date"
-                      className="mb-1.5 block text-sm font-semibold text-[#263a30]"
-                    >
-                      Payment date <span className="text-red-600">*</span>
-                    </label>
-                    <input
-                      id="payment-date"
-                      name="paid_at"
-                      type="date"
-                      max={new Date().toISOString().slice(0, 10)}
-                      value={paymentForm.paid_at}
-                      onChange={(event) =>
-                        handlePaymentFieldChange("paid_at", event.target.value)
-                      }
-                      className={`w-full rounded-xl border bg-white px-3.5 py-3 text-sm text-[#14231d] outline-none focus:border-[#1b7a5a] focus:ring-4 focus:ring-[#1b7a5a]/10 ${
-                        paymentErrors.paid_at
-                          ? "border-red-400"
-                          : "border-[#dfe5dc]"
-                      }`}
-                      aria-invalid={Boolean(paymentErrors.paid_at)}
-                    />
-                    {paymentErrors.paid_at && (
-                      <p className="mt-1.5 text-xs text-red-600">
-                        {paymentErrors.paid_at}
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="payment-notes"
-                    className="mb-1.5 block text-sm font-semibold text-[#263a30]"
-                  >
-                    Notes{" "}
-                    <span className="font-normal text-[#89958d]">
-                      (optional)
-                    </span>
-                  </label>
-                  <textarea
-                    id="payment-notes"
-                    name="notes"
-                    rows={3}
-                    value={paymentForm.notes}
+                  <Input
+                    id="payment-amount"
+                    name="amount"
+                    label="Payment amount (₹)"
+                    type="number"
+                    min="0.01"
+                    max={installmentPayable || undefined}
+                    step="0.01"
+                    inputMode="decimal"
+                    value={paymentForm.amount}
                     onChange={(event) =>
-                      handlePaymentFieldChange("notes", event.target.value)
+                      handlePaymentFieldChange("amount", event.target.value)
                     }
-                    placeholder="Add payment notes..."
-                    className="w-full resize-y rounded-xl border border-[#dfe5dc] bg-white px-3.5 py-3 text-sm text-[#14231d] outline-none transition placeholder:text-[#9aa59d] focus:border-[#1b7a5a] focus:ring-4 focus:ring-[#1b7a5a]/10"
+                    placeholder="Enter amount"
+                    required
+                    error={paymentErrors.amount}
+                  />
+
+                  <Input
+                    id="payment-date"
+                    name="paid_at"
+                    label="Payment date"
+                    type="date"
+                    max={new Date().toISOString().slice(0, 10)}
+                    value={paymentForm.paid_at}
+                    onChange={(event) =>
+                      handlePaymentFieldChange("paid_at", event.target.value)
+                    }
+                    required
+                    error={paymentErrors.paid_at}
                   />
                 </div>
 
-                <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs leading-5 text-blue-800">
-                  Demo mode: confirming updates this page only. No payment is
-                  saved to the database until an API endpoint is connected.
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <Select
+                    id="payment-method"
+                    name="payment_method"
+                    label="Payment method"
+                    placeholder="Select payment method"
+                    required
+                    value={paymentForm.payment_method}
+                    error={paymentErrors.payment_method}
+                    onChange={(event) =>
+                      handlePaymentFieldChange(
+                        "payment_method",
+                        event.target.value,
+                      )
+                    }
+                    options={[
+                      { value: "cash", label: "Cash" },
+                      { value: "upi", label: "UPI" },
+                      { value: "bank_transfer", label: "Bank transfer" },
+                      { value: "card", label: "Card" },
+                      { value: "cheque", label: "Cheque" },
+                      { value: "other", label: "Other" },
+                    ]}
+                  />
+                  <Select
+                    id="payment-account"
+                    name="account_id"
+                    label="Receiving bank account"
+                    placeholder="Select bank account"
+                    required
+                    value={paymentForm.account_id}
+                    error={paymentErrors.account_id}
+                    onChange={(event) =>
+                      handlePaymentFieldChange("account_id", event.target.value)
+                    }
+                    options={accounts.map((account) => ({
+                      value: String(account.id),
+                      label: account.account_name + " " + account.bank_name,
+                    }))}
+                  />{" "}
+                </div>
+
+                <Input
+                  id="payment-notes"
+                  name="notes"
+                  label="Notes (optional)"
+                  value={paymentForm.notes}
+                  onChange={(event) =>
+                    handlePaymentFieldChange("notes", event.target.value)
+                  }
+                  placeholder="Add payment notes..."
+                />
+                <div className="rounded-xl border border-[#e1e8e2] bg-[#f7f9f6] p-3 text-xs leading-5 text-[#5b6b63]">
+                  Payment will be recorded against the selected installment.
                 </div>
               </>
             )}
