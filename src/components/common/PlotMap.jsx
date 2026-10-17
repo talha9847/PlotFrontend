@@ -5,6 +5,7 @@ import {
   Clock3,
   CircleDashed,
   Route,
+  UserRound,
 } from "lucide-react";
 
 const DISPLAY = { fontFamily: "'Fraunces', Georgia, serif" };
@@ -165,26 +166,29 @@ export default function PlotMap({
                 <button
                   type="button"
                   onClick={() => onSelect?.(plot)}
-                  title={`${plotNumber} · ${status.label} · ${formatArea(plot.area)}`}
-                  aria-label={`Plot ${plotNumber}, ${status.label}, ${formatArea(plot.area)}`}
+                  title={`${plotNumber} · ${status.label} · ${formatArea(plot.area)}${plot.leadName ? ` · Lead: ${plot.leadName}` : ""}`}
+                  aria-label={`Plot ${plotNumber}, ${status.label}, ${formatArea(plot.area)}${plot.leadName ? `, Lead: ${plot.leadName}` : ""}`}
                   aria-pressed={isSelected}
-                  className={`group relative flex min-h-[100px] min-w-0 flex-col items-start justify-between overflow-hidden rounded-xl border p-3 text-left shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-lg focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#1b7a5a]/25 sm:min-h-[112px] sm:p-3.5 ${status.card} ${dim ? "opacity-30 saturate-50" : ""} ${isSelected ? "ring-4 ring-[#e4c48a]" : ""}`}
+                  className={`group relative flex min-h-[125px] min-w-0 flex-col items-start justify-between overflow-hidden rounded-xl border p-3 text-left shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-lg focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#1b7a5a]/25 sm:min-h-[140px] sm:p-3.5 ${status.card} ${dim ? "opacity-30 saturate-50" : ""} ${isSelected ? "ring-4 ring-[#e4c48a]" : ""}`}
                 >
                   <div className="flex w-full items-start justify-between gap-1.5">
                     <span className="min-w-0 truncate text-sm font-extrabold tracking-tight">
                       {plotNumber}
                     </span>
+
                     <StatusIcon
                       size={15}
                       className="shrink-0 opacity-80"
                       aria-hidden="true"
                     />
                   </div>
-                  <div className="mt-3 w-full">
+
+                  <div className="mt-3 w-full space-y-2">
                     <p className="truncate text-xs font-semibold">
                       {formatArea(plot.area)}
                     </p>
-                    <div className="mt-2 flex items-center gap-1.5">
+
+                    <div className="flex items-center gap-1.5">
                       <span
                         className={`h-1.5 w-1.5 shrink-0 rounded-full ${status.dot}`}
                       />
@@ -192,7 +196,24 @@ export default function PlotMap({
                         {status.label}
                       </span>
                     </div>
+
+                    {plot.leadName && (
+                      <div
+                        className="flex min-w-0 items-center gap-1.5 rounded-md border border-[#1b7a5a]/15 bg-white/60 px-2 py-1 text-[#1b7a5a]"
+                        title={plot.leadName}
+                      >
+                        <UserRound
+                          size={12}
+                          className="shrink-0"
+                          aria-hidden="true"
+                        />
+                        <span className="truncate text-[10px] font-bold">
+                          {plot.leadName}
+                        </span>
+                      </div>
+                    )}
                   </div>
+
                   <span
                     aria-hidden="true"
                     className="pointer-events-none absolute -bottom-5 -right-5 h-14 w-14 rounded-full bg-[#1b7a5a]/10 transition-transform duration-300 group-hover:scale-150"

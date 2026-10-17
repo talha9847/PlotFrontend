@@ -17,6 +17,8 @@ import Leads from "./pages/Leads";
 import Brokers from "./pages/Brokers";
 import Unauthorized from "./pages/Unauthorized";
 import Bookings from "./pages/Bookings";
+import CustomerProfile from "./pages/CustomerProfile";
+import Installments from "./pages/Installments";
 
 export default function App() {
   return (
@@ -40,8 +42,14 @@ export default function App() {
             <Route path="customers" element={<Customers />} />
             <Route path="payments" element={<PaymentsPage />} />
             <Route path="layout" element={<ComingSoonPage />} />
-            <Route path="installments" element={<ComingSoonPage />} />
+            <Route path="installments" element={<Installments />} />
             <Route path="reminders" element={<ComingSoonPage />} />
+          </Route>
+        </Route>
+
+        <Route element={<ProtectedRoute allowedRoles={["admin"]} />}>
+          <Route path="/customer" element={<AdminLayout />}>
+            <Route path="profile" element={<CustomerProfile />} />
           </Route>
         </Route>
 
