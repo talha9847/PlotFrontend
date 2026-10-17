@@ -20,6 +20,7 @@ import Bookings from "./pages/Bookings";
 import CustomerProfile from "./pages/CustomerProfile";
 import Installments from "./pages/Installments";
 import Accounts from "./pages/Accounts";
+import AccountHistory from "./pages/AccountHistory";
 
 export default function App() {
   return (
@@ -43,6 +44,7 @@ export default function App() {
             <Route path="customers" element={<Customers />} />
             <Route path="payments" element={<PaymentsPage />} />
             <Route path="accounts" element={<Accounts />} />
+            <Route path="history" element={<AccountHistory />} />
             <Route path="layout" element={<ComingSoonPage />} />
             <Route path="installments" element={<Installments />} />
             <Route path="reminders" element={<ComingSoonPage />} />

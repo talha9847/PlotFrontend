@@ -14,6 +14,7 @@ import {
 import axios from "axios";
 
 import Button from "../components/common/Button";
+import { useNavigate } from "react-router-dom";
 
 const DISPLAY = { fontFamily: "'Fraunces', Georgia, serif" };
 const GOLD = "#e4c48a";
@@ -42,6 +43,7 @@ export default function Accounts() {
   const [error, setError] = useState("");
   const [formError, setFormError] = useState("");
   const [success, setSuccess] = useState("");
+  const navigate = useNavigate();
 
   const fetchAccounts = async (showLoader = false) => {
     if (showLoader) setLoading(true);
@@ -408,6 +410,14 @@ export default function Accounts() {
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {filteredAccounts.map((account) => (
               <article
+                onClick={() => {
+                  console.log(account);
+                  navigate("/admin/history", {
+                    state: {
+                      uuid: account.uuid,
+                    },
+                  });
+                }}
                 key={account.uuid || account.id}
                 className="group rounded-2xl border border-[#e3e9e0] bg-white p-5 shadow-sm shadow-[#062a20]/[0.03] transition hover:-translate-y-0.5 hover:border-[#c8d9ce] hover:shadow-md"
               >
