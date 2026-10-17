@@ -37,8 +37,8 @@ const groups = [
       { to: "/admin/leads", label: "Leads", icon: Users },
       { to: "/admin/plots", label: "Plot inventory", icon: Grid2X2 },
       { to: "/admin/bookings", label: "Bookings", icon: ClipboardCheck },
-      { to: "/admin/layout", label: "Layout editor", icon: Map },
       { to: "/admin/customers", label: "Customers.", icon: Users },
+      { to: "/admin/layout", label: "Layout editor", icon: Map },
       {
         to: "/admin/installments",
         label: "Installments",

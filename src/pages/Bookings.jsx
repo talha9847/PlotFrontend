@@ -365,7 +365,7 @@ export default function Bookings() {
     });
 
     setConfirmErrors(errors);
-
+    console.log(errors);
     if (Object.keys(errors).length > 0) {
       toast("Please fix the validation errors.", "error");
       return;
