@@ -2,32 +2,31 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import {
   ArrowLeft,
-  ArrowDownLeft,
   CalendarDays,
+  CheckCircle2,
   ChevronRight,
   Download,
   Home,
   IndianRupee,
-  MapPin,
   Mail,
+  MapPin,
   Phone,
   Plus,
-  ReceiptText,
-  Search,
+  RefreshCw,
   TrendingUp,
   UserRound,
   Wallet,
-  RefreshCw,
 } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import Card from "../components/common/Card";
+import Modal from "../components/common/Modal";
 import Button from "../components/common/Button";
 import Badge from "../components/common/Badge";
-import Input from "../components/common/Input";
-import Loader, {
-  PageLoader,
-  SkeletonLoader,
-} from "../components/common/Loader";
+import Loader, { PageLoader } from "../components/common/Loader";
+import OverviewTab from "../components/customers/OverviewTab";
+import PlotsBookingsTab from "../components/customers/PlotsBookingsTab";
+import InstallmentsTab from "../components/customers/InstallmentsTab";
+import PaymentsTab from "../components/customers/PaymentsTab";
 
 const money = (amount) =>
   new Intl.NumberFormat("en-IN", {
@@ -48,22 +47,6 @@ const formatDate = (value) => {
 };
 
 const number = (value) => Number(value || 0);
-
-function SectionTitle({ title, description, action }) {
-  return (
-    <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-      <div>
-        <h2 className="text-base font-extrabold text-[#14231d]">{title}</h2>
-        {description && (
-          <p className="mt-1 text-xs text-[#5b6b63] sm:text-sm">
-            {description}
-          </p>
-        )}
-      </div>
-      {action}
-    </div>
-  );
-}
 
 function StatCard({ icon: Icon, label, value, hint, tone }) {
   return (
@@ -88,216 +71,6 @@ function StatCard({ icon: Icon, label, value, hint, tone }) {
   );
 }
 
-function EmptyState({ title, description }) {
-  return (
-    <div className="px-5 py-12 text-center">
-      <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-[#e9f6ef] text-[#0b5a3e]">
-        <Home size={22} />
-      </div>
-      <p className="mt-3 text-sm font-bold text-[#14231d]">{title}</p>
-      <p className="mt-1 text-xs text-[#5b6b63]">{description}</p>
-    </div>
-  );
-}
-
-function PlotCard({ booking }) {
-  const total = number(booking.total_amount);
-  const paid = Math.max(0, total - number(booking.balance));
-  const balance = number(booking.balance);
-  const progress =
-    total > 0 ? Math.min(100, Math.round((paid / total) * 100)) : 0;
-  const nextInstallment = (booking.installments || [])
-    .filter((item) =>
-      ["pending", "partially_paid", "overdue"].includes(item.status),
-    )
-    .sort((a, b) => new Date(a.due_date) - new Date(b.due_date))[0];
-
-  return (
-    <Card padding="md" className="h-full">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-3">
-          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[#e9f6ef] text-[#0b5a3e]">
-            <Home size={20} />
-          </span>
-          <div className="min-w-0">
-            <h3 className="truncate font-extrabold text-[#14231d]">
-              Plot {booking.plot_number || "—"}
-            </h3>
-            <p className="mt-1 truncate text-xs text-[#5b6b63]">
-              {booking.project_name || "Project"}
-            </p>
-          </div>
-        </div>
-        <Badge
-          status={booking.booking_status || booking.plot_status || "Active"}
-          size="sm"
-        />
-      </div>
-
-      <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-[#5b6b63]">
-        {booking.plot_type && <span>{booking.plot_type}</span>}
-        {booking.booking_date && (
-          <span>Booked {formatDate(booking.booking_date)}</span>
-        )}
-        <span>{booking.booking_number}</span>
-      </div>
-
-      <div className="mt-4 rounded-xl bg-[#f7f8f6] p-3">
-        <div className="flex items-center justify-between gap-2 text-xs">
-          <span className="text-[#5b6b63]">Payment progress</span>
-          <span className="font-extrabold text-[#0b5a3e]">{progress}%</span>
-        </div>
-        <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#e3e9e0]">
-          <div
-            className="h-full rounded-full bg-[#1b7a5a]"
-            style={{ width: `${progress}%` }}
-          />
-        </div>
-        <div className="mt-3 flex justify-between gap-2 text-xs">
-          <span className="text-[#5b6b63]">Total value</span>
-          <span className="font-bold text-[#14231d]">{money(total)}</span>
-        </div>
-        <div className="mt-2 flex justify-between gap-2 text-xs">
-          <span className="text-[#5b6b63]">Outstanding</span>
-          <span className="font-extrabold text-[#14231d]">
-            {money(balance)}
-          </span>
-        </div>
-      </div>
-
-      <div className="mt-4 flex items-center justify-between gap-3 border-t border-[#edf1eb] pt-3">
-        <div>
-          <p className="text-[11px] text-[#5b6b63]">Next installment</p>
-          <p className="mt-1 text-xs font-bold text-[#14231d]">
-            {nextInstallment
-              ? formatDate(nextInstallment.due_date)
-              : "No upcoming installment"}
-          </p>
-        </div>
-        <div className="text-right">
-          <p className="text-[11px] text-[#5b6b63]">Due amount</p>
-          <p className="mt-1 text-sm font-extrabold text-[#0b5a3e]">
-            {nextInstallment
-              ? money(
-                  number(nextInstallment.amount_due) -
-                    number(nextInstallment.amount_paid),
-                )
-              : money(0)}
-          </p>
-        </div>
-      </div>
-    </Card>
-  );
-}
-
-function InstallmentsTable({ rows }) {
-  if (!rows.length) {
-    return (
-      <EmptyState
-        title="No installments found"
-        description="Installments will appear here when a payment plan is created."
-      />
-    );
-  }
-
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[780px] text-left text-sm">
-        <thead className="bg-[#f7f8f6] text-[11px] uppercase tracking-wider text-[#5b6b63]">
-          <tr>
-            <th className="px-5 py-3">Installment</th>
-            <th className="px-5 py-3">Plot / Booking</th>
-            <th className="px-5 py-3">Due date</th>
-            <th className="px-5 py-3">Due amount</th>
-            <th className="px-5 py-3">Paid amount</th>
-            <th className="px-5 py-3">Status</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-[#edf1eb]">
-          {rows.map((item) => (
-            <tr key={item.id} className="hover:bg-[#fafbf9]">
-              <td className="px-5 py-4 font-semibold">
-                #{item.installment_number}
-              </td>
-              <td className="px-5 py-4">
-                <p className="font-bold text-[#0b5a3e]">
-                  {item.plot_number || "—"}
-                </p>
-                <p className="mt-1 text-[11px] text-[#5b6b63]">
-                  {item.booking_number || "—"}
-                </p>
-              </td>
-              <td className="px-5 py-4 text-[#5b6b63]">
-                {formatDate(item.due_date)}
-              </td>
-              <td className="px-5 py-4 font-bold">{money(item.amount_due)}</td>
-              <td className="px-5 py-4 font-semibold">
-                {money(item.amount_paid)}
-              </td>
-              <td className="px-5 py-4">
-                <Badge status={item.status} size="sm" />
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function PaymentsTable({ rows }) {
-  if (!rows.length) {
-    return (
-      <EmptyState
-        title="No completed installments"
-        description="Paid installments will appear here. This is not a transaction-level receipt ledger."
-      />
-    );
-  }
-
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[700px] text-left text-sm">
-        <thead className="bg-[#f7f8f6] text-[11px] uppercase tracking-wider text-[#5b6b63]">
-          <tr>
-            <th className="px-5 py-3">Installment</th>
-            <th className="px-5 py-3">Plot / Booking</th>
-            <th className="px-5 py-3">Due date</th>
-            <th className="px-5 py-3">Amount paid</th>
-            <th className="px-5 py-3">Status</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-[#edf1eb]">
-          {rows.map((item) => (
-            <tr key={item.id} className="hover:bg-[#fafbf9]">
-              <td className="px-5 py-4 font-semibold">
-                #{item.installment_number}
-              </td>
-              <td className="px-5 py-4">
-                <p className="font-bold text-[#0b5a3e]">
-                  {item.plot_number || "—"}
-                </p>
-                <p className="mt-1 text-[11px] text-[#5b6b63]">
-                  {item.booking_number || "—"}
-                </p>
-              </td>
-              <td className="px-5 py-4 text-[#5b6b63]">
-                {formatDate(item.due_date)}
-              </td>
-              <td className="px-5 py-4 font-extrabold">
-                {money(item.amount_paid)}
-              </td>
-              <td className="px-5 py-4">
-                <Badge status={item.status} size="sm" />
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 export default function CustomerProfile() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -310,6 +83,18 @@ export default function CustomerProfile() {
   const [activeTab, setActiveTab] = useState("Overview");
   const [paymentSearch, setPaymentSearch] = useState("");
 
+  // Static/demo payment modal state. This updates the profile only in memory.
+  const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+  const [savingPayment, setSavingPayment] = useState(false);
+  const [paymentErrors, setPaymentErrors] = useState({});
+  const [paymentSuccess, setPaymentSuccess] = useState("");
+  const [paymentForm, setPaymentForm] = useState({
+    installment_uuid: "",
+    amount: "",
+    paid_at: new Date().toISOString().slice(0, 10),
+    notes: "",
+  });
+
   const fetchProfile = useCallback(
     async (signal, isRefresh = false) => {
       if (!uuid) {
@@ -317,12 +102,12 @@ export default function CustomerProfile() {
           "Customer UUID is missing. Open this page from the customers list.",
         );
         setLoading(false);
+        setRefreshing(false);
         return;
       }
 
       if (isRefresh) setRefreshing(true);
       else setLoading(true);
-
       setError("");
 
       try {
@@ -331,19 +116,21 @@ export default function CustomerProfile() {
           { signal, withCredentials: true },
         );
         const payload = response.data?.data;
+
         if (!payload?.customer) {
           throw new Error(
             response.data?.message || "Customer profile was not returned.",
           );
         }
+
         setProfile(payload);
       } catch (err) {
         if (err.name === "CanceledError" || err.code === "ERR_CANCELED") return;
-        const message =
+        setError(
           err.response?.data?.message ||
-          err.message ||
-          "Unable to load customer profile.";
-        setError(message);
+            err.message ||
+            "Unable to load customer profile.",
+        );
       } finally {
         if (!signal?.aborted) {
           setLoading(false);
@@ -375,6 +162,7 @@ export default function CustomerProfile() {
   const filteredPayments = useMemo(() => {
     const search = paymentSearch.trim().toLowerCase();
     if (!search) return paidInstallments;
+
     return paidInstallments.filter((item) =>
       [
         item.plot_number,
@@ -389,11 +177,163 @@ export default function CustomerProfile() {
     );
   }, [paidInstallments, paymentSearch]);
 
-  const tabs = ["Overview", "Plots & Bookings", "Installments", "Payments"];
+  const payableInstallments = installments.filter((item) =>
+    ["pending", "partially_paid", "overdue"].includes(item.status),
+  );
 
-  if (loading) {
-    return <PageLoader label="Loading customer profile..." />;
-  }
+  const selectedInstallment = payableInstallments.find(
+    (item) =>
+      String(item.uuid || item.installment_uuid || item.id) ===
+      paymentForm.installment_uuid,
+  );
+
+  const installmentPayable = selectedInstallment
+    ? Math.max(
+        0,
+        number(selectedInstallment.amount_due) +
+          number(selectedInstallment.late_fee) -
+          number(selectedInstallment.amount_paid),
+      )
+    : 0;
+
+  const closePaymentModal = () => {
+    if (savingPayment) return;
+    setPaymentModalOpen(false);
+    setPaymentErrors({});
+    setPaymentSuccess("");
+  };
+
+  const openPaymentModal = () => {
+    const firstPayable = payableInstallments[0];
+    setPaymentForm({
+      installment_uuid: firstPayable
+        ? String(
+            firstPayable.uuid ||
+              firstPayable.installment_uuid ||
+              firstPayable.id,
+          )
+        : "",
+      amount: "",
+      paid_at: new Date().toISOString().slice(0, 10),
+      notes: "",
+    });
+    setPaymentErrors({});
+    setPaymentSuccess("");
+    setPaymentModalOpen(true);
+  };
+
+  const handlePaymentFieldChange = (field, value) => {
+    setPaymentForm((current) => ({ ...current, [field]: value }));
+    setPaymentErrors((current) => ({ ...current, [field]: "" }));
+    setPaymentSuccess("");
+  };
+
+  const handleConfirmPayment = (event) => {
+    event.preventDefault();
+
+    const nextErrors = {};
+    const amount = Number(paymentForm.amount);
+    const due = selectedInstallment
+      ? Math.max(
+          0,
+          number(selectedInstallment.amount_due) +
+            number(selectedInstallment.late_fee) -
+            number(selectedInstallment.amount_paid),
+        )
+      : 0;
+
+    if (!paymentForm.installment_uuid) {
+      nextErrors.installment_uuid = "Select an installment.";
+    }
+    if (!paymentForm.amount.trim() || !Number.isFinite(amount) || amount <= 0) {
+      nextErrors.amount = "Enter a payment amount greater than ₹0.";
+    } else if (amount > due) {
+      nextErrors.amount = `Payment cannot exceed the outstanding amount of ${money(due)}.`;
+    }
+    if (!paymentForm.paid_at) {
+      nextErrors.paid_at = "Select the payment date.";
+    }
+
+    setPaymentErrors(nextErrors);
+    if (Object.keys(nextErrors).length) return;
+
+    setSavingPayment(true);
+
+    // Static/demo confirmation: update this page's local state only.
+    // Replace this block with your payment API call when the backend is ready.
+    const newAmountPaid = number(selectedInstallment.amount_paid) + amount;
+    const totalPayable =
+      number(selectedInstallment.amount_due) +
+      number(selectedInstallment.late_fee);
+    const newStatus =
+      newAmountPaid >= totalPayable
+        ? "paid"
+        : newAmountPaid > 0
+          ? "partially_paid"
+          : selectedInstallment.status;
+
+    const updatedInstallments = installments.map((item) => {
+      const itemKey = String(item.uuid || item.installment_uuid || item.id);
+      if (itemKey !== paymentForm.installment_uuid) return item;
+
+      return {
+        ...item,
+        amount_paid: newAmountPaid,
+        status: newStatus,
+        paid_at: newStatus === "paid" ? paymentForm.paid_at : item.paid_at,
+        notes: paymentForm.notes.trim() || item.notes,
+      };
+    });
+
+    const collectedDelta = amount;
+    setProfile((current) => ({
+      ...current,
+      installments: updatedInstallments,
+      upcoming_installments: (current.upcoming_installments || [])
+        .map((item) => {
+          const itemKey = String(item.uuid || item.installment_uuid || item.id);
+          if (itemKey !== paymentForm.installment_uuid) return item;
+          return {
+            ...item,
+            amount_paid: newAmountPaid,
+            status: newStatus,
+            paid_at: newStatus === "paid" ? paymentForm.paid_at : item.paid_at,
+            notes: paymentForm.notes.trim() || item.notes,
+          };
+        })
+        .filter((item) => item.status !== "paid"),
+      overdue_installments: (current.overdue_installments || [])
+        .map((item) => {
+          const itemKey = String(item.uuid || item.installment_uuid || item.id);
+          if (itemKey !== paymentForm.installment_uuid) return item;
+          return {
+            ...item,
+            amount_paid: newAmountPaid,
+            status: newStatus,
+            paid_at: newStatus === "paid" ? paymentForm.paid_at : item.paid_at,
+            notes: paymentForm.notes.trim() || item.notes,
+          };
+        })
+        .filter((item) => item.status === "overdue"),
+      stats: {
+        ...(current.stats || {}),
+        total_collected:
+          number(current.stats?.total_collected) + collectedDelta,
+        outstanding_balance: Math.max(
+          0,
+          number(current.stats?.outstanding_balance) - collectedDelta,
+        ),
+      },
+    }));
+
+    setSavingPayment(false);
+    setPaymentSuccess(
+      "Payment confirmed in this page for preview only. It has not been saved to the server.",
+    );
+    setPaymentForm((current) => ({ ...current, amount: "" }));
+  };
+
+  if (loading) return <PageLoader label="Loading customer profile..." />;
 
   if (error && !profile) {
     return (
@@ -436,6 +376,14 @@ export default function CustomerProfile() {
       ? Math.min(100, Math.round((totalPaid / totalValue) * 100))
       : 0;
 
+  const upcomingAmount = upcoming.reduce(
+    (sum, item) =>
+      sum + Math.max(0, number(item.amount_due) - number(item.amount_paid)),
+    0,
+  );
+
+  const tabs = ["Overview", "Plots & Bookings", "Installments", "Payments"];
+
   return (
     <div className="min-h-screen bg-[#fafaf6] p-4 text-[#14231d] sm:p-6 lg:p-8">
       <div className="mx-auto max-w-[1500px] space-y-6">
@@ -457,7 +405,7 @@ export default function CustomerProfile() {
             >
               <Download size={15} /> Export / Print
             </Button>
-            <Button size="sm" onClick={() => setActiveTab("Payments")}>
+            <Button size="sm" onClick={openPaymentModal}>
               <Plus size={16} /> Record Payment
             </Button>
             <Button
@@ -492,9 +440,6 @@ export default function CustomerProfile() {
                   </h1>
                   <Badge status={customer?.status || "Active"} size="sm" />
                 </div>
-                {/* <p className="mt-1.5 text-xs text-white/60">
-                  Customer ID: {customer?.uuid || customer?.id || uuid}
-                </p> */}
                 <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-xs text-white/85">
                   {customer?.phone && (
                     <span className="flex items-center gap-1.5">
@@ -575,17 +520,7 @@ export default function CustomerProfile() {
           <StatCard
             icon={CalendarDays}
             label="Upcoming Installments"
-            value={money(
-              upcoming.reduce(
-                (sum, item) =>
-                  sum +
-                  Math.max(
-                    0,
-                    number(item.amount_due) - number(item.amount_paid),
-                  ),
-                0,
-              ),
-            )}
+            value={money(upcomingAmount)}
             hint={`${upcoming.length} scheduled installments${overdue.length ? ` · ${overdue.length} overdue` : ""}`}
             tone="bg-purple-50 text-purple-700"
           />
@@ -626,7 +561,11 @@ export default function CustomerProfile() {
                 key={tab}
                 type="button"
                 onClick={() => setActiveTab(tab)}
-                className={`border-b-2 px-1 pb-3 text-sm font-bold transition ${activeTab === tab ? "border-[#1b7a5a] text-[#0b5a3e]" : "border-transparent text-[#5b6b63] hover:text-[#14231d]"}`}
+                className={`border-b-2 px-1 pb-3 text-sm font-bold transition ${
+                  activeTab === tab
+                    ? "border-[#1b7a5a] text-[#0b5a3e]"
+                    : "border-transparent text-[#5b6b63] hover:text-[#14231d]"
+                }`}
               >
                 {tab}
                 {tab === "Plots & Bookings" && (
@@ -650,307 +589,270 @@ export default function CustomerProfile() {
         </div>
 
         {activeTab === "Overview" && (
-          <div className="grid grid-cols-1 items-start gap-6 xl:grid-cols-3">
-            <div className="space-y-6 xl:col-span-2">
-              <section>
-                <SectionTitle
-                  title="Purchased plots"
-                  description="All plots purchased by this customer."
-                  action={
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setActiveTab("Plots & Bookings")}
-                    >
-                      View all plots <ChevronRight size={15} />
-                    </Button>
-                  }
-                />
-                {bookings.length ? (
-                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                    {bookings.slice(0, 2).map((booking) => (
-                      <PlotCard key={booking.booking_id} booking={booking} />
-                    ))}
-                  </div>
-                ) : (
-                  <Card padding="none">
-                    <EmptyState
-                      title="No bookings found"
-                      description="This customer does not have any active bookings."
-                    />
-                  </Card>
-                )}
-              </section>
-
-              <Card padding="md">
-                <SectionTitle
-                  title="Recent paid installments"
-                  description="Paid installment records across all bookings."
-                  action={
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setActiveTab("Payments")}
-                    >
-                      View all <ChevronRight size={15} />
-                    </Button>
-                  }
-                />
-                {paidInstallments.length ? (
-                  <div className="divide-y divide-[#edf1eb]">
-                    {paidInstallments.slice(0, 4).map((item) => (
-                      <div
-                        key={item.id}
-                        className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0"
-                      >
-                        <div className="flex min-w-0 items-center gap-3">
-                          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#e9f6ef] text-[#0b5a3e]">
-                            <ArrowDownLeft size={19} />
-                          </span>
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-bold">
-                              Installment #{item.installment_number} ·{" "}
-                              {item.plot_number || item.booking_number}
-                            </p>
-                            <p className="mt-1 text-xs text-[#5b6b63]">
-                              Due date {formatDate(item.due_date)}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="shrink-0 text-right">
-                          <p className="text-sm font-extrabold text-[#0b5a3e]">
-                            {money(item.amount_paid)}
-                          </p>
-                          <Badge status={item.status} size="sm" />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <EmptyState
-                    title="No paid installments yet"
-                    description="Completed installments will appear here."
-                  />
-                )}
-              </Card>
-            </div>
-
-            <aside className="space-y-6">
-              <Card padding="md">
-                <SectionTitle
-                  title="Upcoming installments"
-                  description="Next scheduled payments."
-                />
-                {upcoming.length ? (
-                  <div className="space-y-3">
-                    {[...upcoming]
-                      .sort(
-                        (a, b) => new Date(a.due_date) - new Date(b.due_date),
-                      )
-                      .slice(0, 5)
-                      .map((item) => (
-                        <div
-                          key={item.id}
-                          className="rounded-xl border border-[#edf1eb] p-3"
-                        >
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <p className="text-sm font-extrabold">
-                                {item.plot_number || "Plot"}
-                              </p>
-                              <p className="mt-1 text-[11px] text-[#5b6b63]">
-                                Installment #{item.installment_number} ·{" "}
-                                {item.booking_number}
-                              </p>
-                            </div>
-                            <p className="shrink-0 text-sm font-extrabold">
-                              {money(
-                                Math.max(
-                                  0,
-                                  number(item.amount_due) -
-                                    number(item.amount_paid),
-                                ),
-                              )}
-                            </p>
-                          </div>
-                          <div className="mt-3 flex items-center justify-between border-t border-[#edf1eb] pt-3 text-[11px]">
-                            <span className="text-[#5b6b63]">
-                              Due {formatDate(item.due_date)}
-                            </span>
-                            <Badge status={item.status} size="sm" />
-                          </div>
-                        </div>
-                      ))}
-                  </div>
-                ) : (
-                  <p className="py-5 text-sm text-[#5b6b63]">
-                    No upcoming installments.
-                  </p>
-                )}
-                {overdue.length > 0 && (
-                  <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3">
-                    <p className="text-xs font-bold text-red-700">
-                      {overdue.length} overdue installment
-                      {overdue.length > 1 ? "s" : ""}
-                    </p>
-                    <p className="mt-1 text-xs text-red-600">
-                      Outstanding overdue:{" "}
-                      {money(
-                        overdue.reduce(
-                          (sum, item) =>
-                            sum +
-                            Math.max(
-                              0,
-                              number(item.amount_due) -
-                                number(item.amount_paid),
-                            ),
-                          0,
-                        ),
-                      )}
-                    </p>
-                  </div>
-                )}
-              </Card>
-
-              <Card padding="md">
-                <h3 className="font-extrabold">Customer information</h3>
-                <div className="mt-4 space-y-4">
-                  <div className="flex items-start gap-3">
-                    <UserRound size={17} className="mt-0.5 text-[#5b6b63]" />
-                    <div>
-                      <p className="text-[11px] text-[#5b6b63]">Full name</p>
-                      <p className="mt-1 text-sm font-semibold">
-                        {customerName}
-                      </p>
-                    </div>
-                  </div>
-                  {customer?.phone && (
-                    <div className="flex items-start gap-3">
-                      <Phone size={17} className="mt-0.5 text-[#5b6b63]" />
-                      <div>
-                        <p className="text-[11px] text-[#5b6b63]">
-                          Phone number
-                        </p>
-                        <p className="mt-1 text-sm font-semibold">
-                          {customer.phone}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                  {customer?.email && (
-                    <div className="flex items-start gap-3">
-                      <Mail size={17} className="mt-0.5 text-[#5b6b63]" />
-                      <div className="min-w-0">
-                        <p className="text-[11px] text-[#5b6b63]">
-                          Email address
-                        </p>
-                        <p className="mt-1 break-all text-sm font-semibold">
-                          {customer.email}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                  {customer?.address && (
-                    <div className="flex items-start gap-3">
-                      <MapPin size={17} className="mt-0.5 text-[#5b6b63]" />
-                      <div>
-                        <p className="text-[11px] text-[#5b6b63]">Address</p>
-                        <p className="mt-1 text-sm font-semibold">
-                          {customer.address}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                  {customer?.broker_name && (
-                    <div className="flex items-start gap-3">
-                      <UserRound size={17} className="mt-0.5 text-[#5b6b63]" />
-                      <div>
-                        <p className="text-[11px] text-[#5b6b63]">
-                          Assigned broker
-                        </p>
-                        <p className="mt-1 text-sm font-semibold">
-                          {customer.broker_name}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </Card>
-            </aside>
-          </div>
+          <OverviewTab
+            customer={customer}
+            bookings={bookings}
+            paidInstallments={paidInstallments}
+            upcoming={upcoming}
+            overdue={overdue}
+            stats={stats}
+            onViewBookings={() => setActiveTab("Plots & Bookings")}
+            onViewPayments={() => setActiveTab("Payments")}
+          />
         )}
 
         {activeTab === "Plots & Bookings" && (
-          <section>
-            <SectionTitle
-              title="All plots & bookings"
-              description={`${bookings.length} bookings across ${number(stats.total_projects)} projects.`}
-            />
-            {bookings.length ? (
-              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-3">
-                {bookings.map((booking) => (
-                  <PlotCard key={booking.booking_id} booking={booking} />
-                ))}
-              </div>
-            ) : (
-              <Card padding="none">
-                <EmptyState
-                  title="No bookings found"
-                  description="There are no bookings to display for this customer."
-                />
-              </Card>
-            )}
-          </section>
+          <PlotsBookingsTab bookings={bookings} stats={stats} />
         )}
 
         {activeTab === "Installments" && (
-          <Card padding="none" className="overflow-hidden">
-            <div className="p-5 sm:p-6">
-              <SectionTitle
-                title="Installment schedule"
-                description="Paid, pending, partially paid and overdue installments across all bookings."
-              />
-            </div>
-            <InstallmentsTable rows={installments} />
-            <div className="border-t border-[#edf1eb] px-5 py-3 text-xs text-[#5b6b63]">
-              Showing {installments.length} installments
-            </div>
-          </Card>
+          <InstallmentsTab installments={installments} />
         )}
 
         {activeTab === "Payments" && (
-          <Card padding="none" className="overflow-hidden">
-            <div className="flex flex-wrap items-end justify-between gap-3 p-5 sm:p-6">
-              <SectionTitle
-                title="Paid installments"
-                description="Paid installment records from the customer schedule."
-              />
+          <PaymentsTab
+            rows={filteredPayments}
+            paymentSearch={paymentSearch}
+            onSearchChange={setPaymentSearch}
+            onRecordPayment={openPaymentModal}
+          />
+        )}
+
+        <Modal
+          open={paymentModalOpen}
+          onClose={closePaymentModal}
+          size="lg"
+          title="Record payment"
+          description="Select an installment, enter the payment amount, and confirm the details."
+          footer={
+            <div className="flex w-full flex-col-reverse gap-3 sm:flex-row sm:justify-end">
               <Button
-                size="sm"
-                onClick={() =>
-                  window.alert(
-                    "Connect this action to your payment recording form.",
-                  )
-                }
+                type="button"
+                variant="secondary"
+                onClick={closePaymentModal}
+                disabled={savingPayment}
               >
-                <Plus size={15} /> Record payment
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                form="record-customer-payment-form"
+                disabled={savingPayment || payableInstallments.length === 0}
+              >
+                <CheckCircle2 size={16} className="mr-2" />
+                {savingPayment ? "Confirming..." : "Confirm payment"}
               </Button>
             </div>
-            <div className="px-5 pb-4 sm:px-6">
-              <Input
-                value={paymentSearch}
-                onChange={(event) => setPaymentSearch(event.target.value)}
-                placeholder="Search plot, booking or installment..."
-                leadingIcon={Search}
-              />
+          }
+        >
+          <form
+            id="record-customer-payment-form"
+            onSubmit={handleConfirmPayment}
+            className="space-y-5"
+            noValidate
+          >
+            <div className="rounded-2xl border border-[#e1e8e2] bg-[#f7f9f6] p-4">
+              <p className="text-xs font-medium uppercase tracking-wider text-[#718078]">
+                Customer
+              </p>
+              <p className="mt-1 text-base font-bold text-[#14231d]">
+                {customerName}
+              </p>
+              {customer?.phone && (
+                <p className="mt-1 text-sm text-[#5b6b63]">{customer.phone}</p>
+              )}
             </div>
-            <PaymentsTable rows={filteredPayments} />
-            <div className="border-t border-[#edf1eb] px-5 py-3 text-xs text-[#5b6b63]">
-              Showing {filteredPayments.length} of {paidInstallments.length}{" "}
-              paid installments
-            </div>
-          </Card>
-        )}
+
+            {payableInstallments.length === 0 ? (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+                There are no pending, partially paid, or overdue installments
+                for this customer.
+              </div>
+            ) : (
+              <>
+                <div>
+                  <label
+                    htmlFor="payment-installment"
+                    className="mb-1.5 block text-sm font-semibold text-[#263a30]"
+                  >
+                    Installment <span className="text-red-600">*</span>
+                  </label>
+                  <select
+                    id="payment-installment"
+                    name="installment_uuid"
+                    value={paymentForm.installment_uuid}
+                    onChange={(event) =>
+                      handlePaymentFieldChange(
+                        "installment_uuid",
+                        event.target.value,
+                      )
+                    }
+                    className={`w-full rounded-xl border bg-white px-3.5 py-3 text-sm text-[#14231d] outline-none focus:border-[#1b7a5a] focus:ring-4 focus:ring-[#1b7a5a]/10 ${
+                      paymentErrors.installment_uuid
+                        ? "border-red-400"
+                        : "border-[#dfe5dc]"
+                    }`}
+                    aria-invalid={Boolean(paymentErrors.installment_uuid)}
+                  >
+                    <option value="">Select installment</option>
+                    {payableInstallments.map((item) => {
+                      const itemKey = String(
+                        item.uuid || item.installment_uuid || item.id,
+                      );
+                      const balance = Math.max(
+                        0,
+                        number(item.amount_due) +
+                          number(item.late_fee) -
+                          number(item.amount_paid),
+                      );
+                      return (
+                        <option key={itemKey} value={itemKey}>
+                          {item.plot_number
+                            ? `Plot ${item.plot_number} · `
+                            : ""}
+                          {item.booking_number
+                            ? `${item.booking_number} · `
+                            : ""}
+                          Installment #{item.installment_number} ·{" "}
+                          {money(balance)} outstanding
+                        </option>
+                      );
+                    })}
+                  </select>
+                  {paymentErrors.installment_uuid && (
+                    <p className="mt-1.5 text-xs text-red-600">
+                      {paymentErrors.installment_uuid}
+                    </p>
+                  )}
+                </div>
+
+                {selectedInstallment && (
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <div className="rounded-xl border border-[#e1e8e2] p-3">
+                      <p className="text-xs text-[#718078]">Amount due</p>
+                      <p className="mt-1 font-bold text-[#14231d]">
+                        {money(number(selectedInstallment.amount_due))}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-[#e1e8e2] p-3">
+                      <p className="text-xs text-[#718078]">Late fee</p>
+                      <p className="mt-1 font-bold text-[#14231d]">
+                        {money(number(selectedInstallment.late_fee))}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-[#b8d9c4] bg-[#edf5ef] p-3">
+                      <p className="text-xs text-[#536b5c]">Outstanding</p>
+                      <p className="mt-1 font-bold text-[#176344]">
+                        {money(installmentPayable)}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div>
+                    <label
+                      htmlFor="payment-amount"
+                      className="mb-1.5 block text-sm font-semibold text-[#263a30]"
+                    >
+                      Payment amount (INR){" "}
+                      <span className="text-red-600">*</span>
+                    </label>
+                    <input
+                      id="payment-amount"
+                      name="amount"
+                      type="number"
+                      min="0.01"
+                      max={installmentPayable || undefined}
+                      step="0.01"
+                      inputMode="decimal"
+                      value={paymentForm.amount}
+                      onChange={(event) =>
+                        handlePaymentFieldChange("amount", event.target.value)
+                      }
+                      placeholder="Enter amount"
+                      className={`w-full rounded-xl border bg-white px-3.5 py-3 text-sm text-[#14231d] outline-none focus:border-[#1b7a5a] focus:ring-4 focus:ring-[#1b7a5a]/10 ${
+                        paymentErrors.amount
+                          ? "border-red-400"
+                          : "border-[#dfe5dc]"
+                      }`}
+                      aria-invalid={Boolean(paymentErrors.amount)}
+                    />
+                    {paymentErrors.amount && (
+                      <p className="mt-1.5 text-xs text-red-600">
+                        {paymentErrors.amount}
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="payment-date"
+                      className="mb-1.5 block text-sm font-semibold text-[#263a30]"
+                    >
+                      Payment date <span className="text-red-600">*</span>
+                    </label>
+                    <input
+                      id="payment-date"
+                      name="paid_at"
+                      type="date"
+                      max={new Date().toISOString().slice(0, 10)}
+                      value={paymentForm.paid_at}
+                      onChange={(event) =>
+                        handlePaymentFieldChange("paid_at", event.target.value)
+                      }
+                      className={`w-full rounded-xl border bg-white px-3.5 py-3 text-sm text-[#14231d] outline-none focus:border-[#1b7a5a] focus:ring-4 focus:ring-[#1b7a5a]/10 ${
+                        paymentErrors.paid_at
+                          ? "border-red-400"
+                          : "border-[#dfe5dc]"
+                      }`}
+                      aria-invalid={Boolean(paymentErrors.paid_at)}
+                    />
+                    {paymentErrors.paid_at && (
+                      <p className="mt-1.5 text-xs text-red-600">
+                        {paymentErrors.paid_at}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="payment-notes"
+                    className="mb-1.5 block text-sm font-semibold text-[#263a30]"
+                  >
+                    Notes{" "}
+                    <span className="font-normal text-[#89958d]">
+                      (optional)
+                    </span>
+                  </label>
+                  <textarea
+                    id="payment-notes"
+                    name="notes"
+                    rows={3}
+                    value={paymentForm.notes}
+                    onChange={(event) =>
+                      handlePaymentFieldChange("notes", event.target.value)
+                    }
+                    placeholder="Add payment notes..."
+                    className="w-full resize-y rounded-xl border border-[#dfe5dc] bg-white px-3.5 py-3 text-sm text-[#14231d] outline-none transition placeholder:text-[#9aa59d] focus:border-[#1b7a5a] focus:ring-4 focus:ring-[#1b7a5a]/10"
+                  />
+                </div>
+
+                <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs leading-5 text-blue-800">
+                  Demo mode: confirming updates this page only. No payment is
+                  saved to the database until an API endpoint is connected.
+                </div>
+              </>
+            )}
+
+            {paymentSuccess && (
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+                {paymentSuccess}
+              </div>
+            )}
+          </form>
+        </Modal>
 
         <footer className="flex flex-wrap justify-between gap-2 pb-4 text-[11px] text-[#87928b]">
           <span>Plotwise · Customer profile</span>
