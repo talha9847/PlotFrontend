@@ -379,7 +379,7 @@ export default function CustomerProfile() {
     setSavingPayment(true);
 
     try {
-      const response = await axios.post("/api/payments/receive", payload, {
+      const response = await axios.post("/api/payments/received", payload, {
         withCredentials: true,
       });
 
