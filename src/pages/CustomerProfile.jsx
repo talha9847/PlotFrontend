@@ -52,6 +52,50 @@ const formatDate = (value) => {
 
 const number = (value) => Number(value || 0);
 
+// Normalize API aliases so shared UI components can consistently use id/uuid/status.
+const normalizeInstallment = (item) => ({
+  ...item,
+  id: item.id ?? item.installment_id,
+  uuid: item.uuid ?? item.installment_uuid,
+  installment_id: item.installment_id ?? item.id,
+  installment_uuid: item.installment_uuid ?? item.uuid,
+});
+
+const normalizePayment = (item) => ({
+  ...item,
+  id: item.id ?? item.payment_id,
+  uuid: item.uuid ?? item.payment_uuid,
+  status: item.status ?? item.payment_status,
+  payment_id: item.payment_id ?? item.id,
+  payment_uuid: item.payment_uuid ?? item.uuid,
+  payment_status: item.payment_status ?? item.status,
+});
+
+const normalizeCustomerProfile = (payload) => {
+  const installments = (payload.installments || []).map(normalizeInstallment);
+  const payments = (payload.payments || []).map(normalizePayment);
+
+  return {
+    ...payload,
+    installments,
+    payments,
+    upcoming_installments: (payload.upcoming_installments || []).map(
+      normalizeInstallment,
+    ),
+    overdue_installments: (payload.overdue_installments || []).map(
+      normalizeInstallment,
+    ),
+    bookings: (payload.bookings || []).map((booking) => ({
+      ...booking,
+      installments: (booking.installments || []).map((item) => ({
+        ...normalizeInstallment(item),
+        payments: (item.payments || []).map(normalizePayment),
+      })),
+      payments: (booking.payments || []).map(normalizePayment),
+    })),
+  };
+};
+
 function StatCard({ icon: Icon, label, value, hint, tone }) {
   return (
     <Card padding="md" className="h-full">
@@ -156,7 +200,7 @@ export default function CustomerProfile() {
           );
         }
 
-        setProfile(payload);
+        setProfile(normalizeCustomerProfile(payload));
       } catch (err) {
         if (err.name === "CanceledError" || err.code === "ERR_CANCELED") return;
         setError(
@@ -254,6 +298,7 @@ export default function CustomerProfile() {
         firstPayable.uuid || firstPayable.installment_uuid || firstPayable.id,
       ),
       amount: "",
+      account_id: "",
       paid_at: new Date().toISOString().slice(0, 10),
       payment_method: "",
       notes: "",
@@ -279,7 +324,11 @@ export default function CustomerProfile() {
       nextErrors.installment_uuid = "Select an installment.";
     }
 
-    if (!paymentForm.amount.trim() || !Number.isFinite(amount) || amount <= 0) {
+    if (
+      !String(paymentForm.amount).trim() ||
+      !Number.isFinite(amount) ||
+      amount <= 0
+    ) {
       nextErrors.amount = "Enter a valid payment amount greater than ₹0.";
     } else if (amount > installmentPayable) {
       nextErrors.amount = `Payment cannot exceed ${money(installmentPayable)}.`;
@@ -291,6 +340,10 @@ export default function CustomerProfile() {
 
     if (!paymentForm.payment_method) {
       nextErrors.payment_method = "Select a payment method.";
+    }
+
+    if (!paymentForm.account_id) {
+      nextErrors.account_id = "Select a receiving bank account.";
     }
 
     setPaymentErrors(nextErrors);
@@ -320,6 +373,7 @@ export default function CustomerProfile() {
       paid_at: paymentForm.paid_at,
       payment_method: paymentForm.payment_method,
       notes: paymentForm.notes.trim(),
+      account_id: Number(paymentForm.account_id),
     };
 
     setSavingPayment(true);
@@ -344,6 +398,7 @@ export default function CustomerProfile() {
       setPaymentForm({
         installment_uuid: "",
         amount: "",
+        account_id: "",
         paid_at: new Date().toISOString().slice(0, 10),
         payment_method: "",
         notes: "",
@@ -407,7 +462,13 @@ export default function CustomerProfile() {
 
   const upcomingAmount = upcoming.reduce(
     (sum, item) =>
-      sum + Math.max(0, number(item.amount_due) - number(item.amount_paid)),
+      sum +
+      Math.max(
+        0,
+        number(item.amount_due) +
+          number(item.late_fee) -
+          number(item.amount_paid),
+      ),
     0,
   );
 
@@ -821,8 +882,15 @@ export default function CustomerProfile() {
                     id="payment-account"
                     name="account_id"
                     label="Receiving bank account"
-                    placeholder="Select bank account"
+                    placeholder={
+                      loadingAccounts
+                        ? "Loading accounts..."
+                        : accounts.length
+                          ? "Select bank account"
+                          : "No bank accounts available"
+                    }
                     required
+                    disabled={loadingAccounts || accounts.length === 0}
                     value={paymentForm.account_id}
                     error={paymentErrors.account_id}
                     onChange={(event) =>
@@ -830,9 +898,9 @@ export default function CustomerProfile() {
                     }
                     options={accounts.map((account) => ({
                       value: String(account.id),
-                      label: account.account_name + " " + account.bank_name,
+                      label: `${account.account_name} — ${account.bank_name}`,
                     }))}
-                  />{" "}
+                  />
                 </div>
 
                 <Input
