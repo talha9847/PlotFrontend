@@ -219,14 +219,14 @@ export default function Bookings() {
       case "down_payment": {
         if (value === "") return "Down payment is required.";
 
-        const amount = Number(value);
+        const amount = Number(value) + Number(confirmForm.booking_amount);
 
         if (!Number.isFinite(amount) || amount <= 0) {
           return "Down payment must be greater than 0.";
         }
 
         if (amount > totalAmount) {
-          return "Down payment cannot exceed the total amount.";
+          return "Down payment cannot exceed the remainig amount.";
         }
 
         return "";
@@ -315,6 +315,8 @@ export default function Bookings() {
     status: "active",
     notes: "",
     lead_id: "",
+    booking_amount: 0,
+    total_amount: 0,
   });
   const [savingConfirmation, setSavingConfirmation] = useState(false);
 
@@ -325,6 +327,8 @@ export default function Bookings() {
     setConfirmForm({
       ...confirmForm,
       lead_id: booking.lead_id,
+      booking_amount: booking.booking_amount,
+      total_amount: booking.total_amount,
     });
 
     setConfirmModalOpen(true);
@@ -1131,7 +1135,7 @@ export default function Bookings() {
                   </div>
 
                   <p className="text-xl font-bold tabular-nums text-[#176344]">
-                    {formatINR(confirmingBooking.total_amount)}
+                    {formatINR(confirmForm.total_amount)}
                   </p>
                 </div>
               </div>
@@ -1266,8 +1270,9 @@ export default function Bookings() {
                     {formatINR(
                       Math.max(
                         0,
-                        Number(confirmingBooking.total_amount || 0) -
-                          Math.max(0, Number(confirmForm.booking_amount || 0)),
+                        Number(confirmForm.total_amount || 0) -
+                          Math.max(0, Number(confirmForm.booking_amount || 0)) -
+                          Math.max(0, Number(confirmForm.down_payment)),
                       ),
                     )}
                   </span>
@@ -1276,6 +1281,61 @@ export default function Bookings() {
                     Booking amount:{" "}
                     {formatINR(
                       Math.max(0, Number(confirmForm.booking_amount || 0)),
+                    )}
+                  </span>
+                  <span className="mt-1 block text-xs font-medium text-[#89958d]">
+                    Down Payment:{" "}
+                    {formatINR(
+                      Math.max(0, Number(confirmForm.down_payment || 0)),
+                    )}
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center justify-between gap-4 rounded-xl border border-[#e1e8e2] bg-white px-4 py-3">
+                <div>
+                  <p className="text-sm font-medium text-[#53645a]">
+                    {`${confirmForm.frequency.toLocaleUpperCase()} Installments`}
+                  </p>
+                  <p className="mt-0.5 text-xs text-[#89958d]">
+                    After the Down payment
+                  </p>
+                </div>
+
+                <div className="text-right">
+                  <span className="block text-base font-bold tabular-nums text-[#14231d]">
+                    {formatINR(
+                      Math.max(
+                        0,
+                        Math.max(0, Number(confirmForm.total_amount || 0)) -
+                          Math.max(0, Number(confirmForm.booking_amount || 0)) -
+                          Math.max(0, confirmForm.down_payment),
+                      ) / confirmForm.installment_count,
+                    )}
+                  </span>
+
+                  <span className="mt-1 block text-xs font-medium text-[#89958d]">
+                    {formatINR(
+                      Math.max(
+                        0,
+                        Number(confirmForm.total_amount || 0) -
+                          Number(confirmForm.booking_amount || 0) -
+                          Number(confirmForm.down_payment || 0),
+                      ) /
+                        Math.max(1, Number(confirmForm.installment_count || 1)),
+                    )}
+                    {` * ${confirmForm.installment_count} = `}
+                    {formatINR(
+                      (Math.max(
+                        0,
+                        Number(confirmForm.total_amount || 0) -
+                          Number(confirmForm.booking_amount || 0) -
+                          Number(confirmForm.down_payment || 0),
+                      ) /
+                        Math.max(
+                          1,
+                          Number(confirmForm.installment_count || 1),
+                        )) *
+                        Number(confirmForm.installment_count || 1),
                     )}
                   </span>
                 </div>
