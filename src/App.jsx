@@ -21,6 +21,7 @@ import CustomerProfile from "./pages/CustomerProfile";
 import Installments from "./pages/Installments";
 import Accounts from "./pages/Accounts";
 import AccountHistory from "./pages/AccountHistory";
+import BrokerLeads from "../src/broker/Leads";
 
 export default function App() {
   return (
@@ -48,6 +49,13 @@ export default function App() {
             <Route path="layout" element={<ComingSoonPage />} />
             <Route path="installments" element={<Installments />} />
             <Route path="reminders" element={<ComingSoonPage />} />
+          </Route>
+        </Route>
+        <Route element={<ProtectedRoute allowedRoles={["broker"]} />}>
+          <Route path="/broker" element={<AdminLayout />}>
+            <Route index element={<Navigate to="dashboard" replace />} />
+
+            <Route path="leads" element={<BrokerLeads />} />
           </Route>
         </Route>
 
