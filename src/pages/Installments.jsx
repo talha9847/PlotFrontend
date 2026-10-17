@@ -504,7 +504,7 @@ export default function Installments() {
                         onClick={() => {
                           navigate("/customer/profile", {
                             state: {
-                              uuid: customer.customer_uuid,
+                              uuid: item.customer_uuid,
                             },
                           });
                         }}
