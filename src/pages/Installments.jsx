@@ -22,6 +22,7 @@ import Card from "../components/common/Card";
 import Button from "../components/common/Button";
 import Loader from "../components/common/Loader";
 import { useToast } from "../components/common/Toast";
+import { useNavigate } from "react-router-dom";
 
 const DISPLAY = { fontFamily: "'Fraunces', Georgia, serif" };
 const GOLD = "#e4c48a";
@@ -170,7 +171,7 @@ export default function Installments() {
     hasNextPage: false,
     hasPrevPage: false,
   });
-
+  const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [filter, setFilter] = useState("All");
@@ -499,7 +500,16 @@ export default function Installments() {
                       key={item.uuid || item.id}
                       className="group border-t border-[#eef2ec] transition hover:bg-[#f8faf6]"
                     >
-                      <td className="px-5 py-4">
+                      <td
+                        onClick={() => {
+                          navigate("/customer/profile", {
+                            state: {
+                              uuid: customer.customer_uuid,
+                            },
+                          });
+                        }}
+                        className="px-5 py-4 cursor-pointer"
+                      >
                         <div className="flex min-w-0 items-center gap-3">
                           <span
                             className="grid h-11 w-11 shrink-0 place-items-center rounded-full border-2 border-[#e4c48a]/70 bg-[#0b3d2e] text-xs font-bold text-[#e4c48a] shadow-sm"
