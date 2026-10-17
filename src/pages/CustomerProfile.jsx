@@ -412,6 +412,7 @@ export default function CustomerProfile() {
           "Unable to record payment. Please try again.",
         "error",
       );
+      console.log(error);
     } finally {
       setSavingPayment(false);
     }
