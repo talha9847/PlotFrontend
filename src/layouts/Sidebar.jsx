@@ -18,6 +18,7 @@ import {
   Command,
   ClipboardCheck,
   Wallet2Icon,
+  History,
 } from "lucide-react";
 import Brand from "../components/common/Brand";
 
@@ -47,6 +48,7 @@ const groups = [
       },
       { to: "/admin/accounts", label: "Accounts", icon: Wallet2Icon },
       { to: "/admin/layout", label: "Layout editor", icon: Map },
+      { to: "/admin/transactions", label: "Transactions", icon: History },
       { to: "/admin/payments", label: "Payments & receipts", icon: Receipt },
     ],
   },

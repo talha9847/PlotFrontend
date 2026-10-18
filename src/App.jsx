@@ -22,6 +22,7 @@ import Installments from "./pages/Installments";
 import Accounts from "./pages/Accounts";
 import AccountHistory from "./pages/AccountHistory";
 import BrokerLeads from "../src/broker/Leads";
+import TransactionHistoryDummy from "./pages/TransactionHistory";
 
 export default function App() {
   return (
@@ -48,6 +49,7 @@ export default function App() {
             <Route path="history" element={<AccountHistory />} />
             <Route path="layout" element={<ComingSoonPage />} />
             <Route path="installments" element={<Installments />} />
+            <Route path="transactions" element={<TransactionHistoryDummy />} />
             <Route path="reminders" element={<ComingSoonPage />} />
           </Route>
         </Route>
