@@ -20,6 +20,7 @@ import ProjectDetailsModal from "../components/projects/ProjectDetailModal";
 import StatCard from "../components/projects/StatCard";
 import ProjectCard from "../components/projects/ProjectCard";
 import CreateProjectModal from "../components/projects/CreateProjectModal";
+import ManageProjectPlotsModal from "../components/projects/ManageProjectPlotsModal";
 
 const DISPLAY = { fontFamily: "'Fraunces', Georgia, serif" };
 const GOLD = "#e4c48a";
@@ -63,6 +64,7 @@ export default function Projects() {
   const [type, setType] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [selectedProject, setSelectedProject] = useState(null);
+  const [projectToManagePlots, setProjectToManagePlots] = useState(null);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -360,11 +362,25 @@ export default function Projects() {
         ) : filteredProjects.length > 0 ? (
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {filteredProjects.map((project) => (
-              <ProjectCard
+              <div
                 key={project.uuid || project.id}
-                project={project}
-                onClick={() => setSelectedProject(project)}
-              />
+                className="min-w-0 rounded-2xl"
+              >
+                <ProjectCard
+                  project={project}
+                  onClick={() => setSelectedProject(project)}
+                />
+                <div className="mt-2 flex justify-end">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => setProjectToManagePlots(project)}
+                  >
+                    <Grid2X2 size={16} />
+                    Manage plots
+                  </Button>
+                </div>
+              </div>
             ))}
           </div>
         ) : (
@@ -401,6 +417,16 @@ export default function Projects() {
         projects={projects}
         onCreate={createProject}
         onClose={() => setShowCreate(false)}
+      />
+
+      {/* Add or remove plots from an existing project */}
+      <ManageProjectPlotsModal
+        project={projectToManagePlots}
+        onClose={() => setProjectToManagePlots(null)}
+        onUpdated={async () => {
+          await fetchProjectsData();
+          setProjectToManagePlots(null);
+        }}
       />
 
       {/* Project details modal */}
