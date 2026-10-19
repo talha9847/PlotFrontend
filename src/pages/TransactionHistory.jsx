@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ArrowDownLeft,
   ArrowUpRight,
@@ -16,6 +16,7 @@ import {
 import SearchableLeadSelect from "../components/common/SearchableLeadSelect";
 import SearchablePlotSelect2 from "../components/common/SearchablePlotSelect2";
 import Select from "../components/common/Select";
+import Loader from "../components/common/Loader";
 import { useToast } from "../components/common/Toast";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
@@ -164,7 +165,10 @@ export default function TransactionHistory() {
   const [showFilters, setShowFilters] = useState(false);
   const [detail, setDetail] = useState(null);
   const [loading, setLoading] = useState(false);
+  const requestIdRef = useRef(0);
   const [loadingAccounts, setLoadingAccounts] = useState(false);
+  const [loadingProjects, setLoadingProjects] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [accounts, setAccounts] = useState([]);
   const [projects, setProjects] = useState([]);
   const [total, setTotal] = useState(0);
@@ -187,6 +191,7 @@ export default function TransactionHistory() {
   });
 
   const getProjects = async () => {
+    setLoadingProjects(true);
     try {
       const res = await axios.get("/api/plots/projects", {
         withCredentials: true,
@@ -194,6 +199,12 @@ export default function TransactionHistory() {
       if (res.status === 200) setProjects(res.data?.data?.projects || []);
     } catch (error) {
       console.error("Failed to load projects:", error);
+      toast(
+        error.response?.data?.message || "Failed to load projects.",
+        "error",
+      );
+    } finally {
+      setLoadingProjects(false);
     }
   };
 
@@ -237,6 +248,7 @@ export default function TransactionHistory() {
   };
 
   const fetchTransactions = async () => {
+    const requestId = ++requestIdRef.current;
     setLoading(true);
     try {
       const res = await axios.get("/api/transactions", {
@@ -249,6 +261,8 @@ export default function TransactionHistory() {
         data.transactions ||
         payload.transactions ||
         (Array.isArray(data) ? data : []);
+      // Ignore outdated responses if a newer filter request has already started.
+      if (requestId !== requestIdRef.current) return;
       setTransactions(rows.map(normalizeTransaction));
       const pagination = payload.pagination || data.pagination || {};
       const nextTotal =
@@ -304,6 +318,7 @@ export default function TransactionHistory() {
           ) || 0,
       });
     } catch (error) {
+      if (requestId !== requestIdRef.current) return;
       toast(
         error.response?.data?.message || "Failed to load transactions.",
         "error",
@@ -312,7 +327,7 @@ export default function TransactionHistory() {
       setTotal(0);
       setTotalPages(1);
     } finally {
-      setLoading(false);
+      if (requestId === requestIdRef.current) setLoading(false);
     }
   };
 
@@ -390,6 +405,7 @@ export default function TransactionHistory() {
   }
 
   async function exportCsv(mode = "filtered") {
+    setExporting(true);
     try {
       let rows = [];
       if (mode === "selected") {
@@ -470,6 +486,8 @@ export default function TransactionHistory() {
         error.response?.data?.message || "Failed to export transactions.",
         "error",
       );
+    } finally {
+      setExporting(false);
     }
   }
 
@@ -503,19 +521,26 @@ export default function TransactionHistory() {
               type="button"
               className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-[#0b3d2e] px-4 text-sm font-semibold text-white hover:bg-[#145640]"
             >
-              <Download size={16} /> Export <ChevronDown size={15} />
+              {exporting ? (
+                <Loader size="xs" color="#ffffff" label="Exporting..." />
+              ) : (
+                <>
+                  <Download size={16} /> Export <ChevronDown size={15} />
+                </>
+              )}
             </button>
             <div className="invisible absolute right-0 top-full z-40 mt-2 w-56 rounded-xl border border-[#dfe5dc] bg-white p-1.5 opacity-0 shadow-xl transition group-focus-within:visible group-focus-within:opacity-100 group-hover:visible group-hover:opacity-100">
               <button
                 type="button"
                 onClick={() => exportCsv("filtered")}
+                disabled={exporting}
                 className="w-full rounded-lg px-3 py-2.5 text-left text-sm hover:bg-slate-50"
               >
                 Export all filtered results ({total})
               </button>
               <button
                 type="button"
-                disabled={!selectedIds.length}
+                disabled={!selectedIds.length || exporting}
                 onClick={() => exportCsv("selected")}
                 className="w-full rounded-lg px-3 py-2.5 text-left text-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
               >
@@ -755,11 +780,37 @@ export default function TransactionHistory() {
               </div>
             </div>
           )}
+          {(loadingAccounts || loadingProjects) && (
+            <div className="flex flex-wrap gap-4">
+              {loadingAccounts && (
+                <Loader size="sm" label="Loading accounts..." />
+              )}
+              {loadingProjects && (
+                <Loader size="sm" label="Loading projects..." />
+              )}
+            </div>
+          )}
+
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-xs text-[#5b6b63]">
-              {total} matching transaction
-              {total === 1 ? "" : "s"} · live results
-            </p>
+            <div className="flex flex-wrap items-center gap-3">
+              <p className="text-xs text-[#5b6b63]">
+                {total} matching transaction
+                {total === 1 ? "" : "s"} · live results
+              </p>
+              <button
+                type="button"
+                onClick={fetchTransactions}
+                disabled={loading}
+                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-[#0b3d2e] px-4 text-sm font-semibold text-white transition hover:bg-[#145640] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {loading ? (
+                  <Loader size="xs" color="#ffffff" />
+                ) : (
+                  <SlidersHorizontal size={15} />
+                )}
+                {loading ? "Applying filters" : "Apply filters"}
+              </button>
+            </div>
             <label className="flex items-center gap-2 text-xs text-[#5b6b63]">
               Sort by
               <select
@@ -810,7 +861,12 @@ export default function TransactionHistory() {
           </div>
         )}
 
-        <div className="overflow-x-auto">
+        <div className="relative overflow-x-auto">
+          {loading && (
+            <div className="absolute inset-0 z-10 flex items-start justify-center bg-white/75 px-4 py-12 backdrop-blur-[1px]">
+              <Loader size="lg" label="Loading transactions..." centered />
+            </div>
+          )}
           <table className="w-full min-w-[1050px] text-left text-sm">
             <thead>
               <tr className="bg-[#f4f7f2] text-[10px] font-bold uppercase tracking-[0.12em] text-[#5b6b63]">
@@ -870,7 +926,17 @@ export default function TransactionHistory() {
               </tr>
             </thead>
             <tbody>
-              {pageRows.length ? (
+              {loading ? (
+                <tr>
+                  <td colSpan={8} className="px-5 py-16 text-center">
+                    <Loader
+                      size="lg"
+                      centered
+                      label="Loading transactions..."
+                    />
+                  </td>
+                </tr>
+              ) : pageRows.length ? (
                 pageRows.map((tx) => {
                   const selected = selectedIds.includes(tx.uuid);
                   const incoming = tx.status === "completed";
@@ -975,11 +1041,17 @@ export default function TransactionHistory() {
                     <span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-[#e9f3ee] text-[#1b7a5a]">
                       <Search size={20} />
                     </span>
-                    <p className="mt-4 font-bold">
-                      {loading
-                        ? "Loading transactions…"
-                        : "No transactions found"}
-                    </p>
+                    <div className="mt-4 font-bold">
+                      {loading ? (
+                        <Loader
+                          size="md"
+                          label="Loading transactions..."
+                          centered
+                        />
+                      ) : (
+                        "No transactions found"
+                      )}
+                    </div>
                     <p className="mt-1 text-xs text-[#5b6b63]">
                       Try a different search or clear your filters.
                     </p>
