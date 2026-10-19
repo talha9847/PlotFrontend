@@ -18,6 +18,7 @@ import SearchablePlotSelect2 from "../components/common/SearchablePlotSelect2";
 import Select from "../components/common/Select";
 import { useToast } from "../components/common/Toast";
 import axios from "axios";
+import { useNavigate } from "react-router-dom";
 
 const DISPLAY = { fontFamily: "'Fraunces', Georgia, serif" };
 const GOLD = "#e4c48a";
@@ -168,6 +169,8 @@ export default function TransactionHistory() {
   const [projects, setProjects] = useState([]);
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
+
+  const navigate = useNavigate();
   const [summary, setSummary] = useState({
     completedTotal: 0,
     pendingTotal: 0,
@@ -920,7 +923,16 @@ export default function TransactionHistory() {
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-4">
+                      <td
+                        onClick={() => {
+                          navigate("/customer/profile", {
+                            state: {
+                              uuid: tx.uuid,
+                            },
+                          });
+                        }}
+                        className="px-4 py-4 cursor-pointer"
+                      >
                         <p className="font-semibold">
                           {tx.customerName || "—"}
                         </p>
