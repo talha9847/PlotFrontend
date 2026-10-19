@@ -105,6 +105,105 @@ const formatDateTime = (value) =>
     minute: "2-digit",
   }).format(new Date(value));
 
+function getInstallmentProgress(row) {
+  // Supports common API naming conventions. Prefer the paid/current installment
+  // count and the total installment count supplied by the backend.
+  const paid = first(
+    row.paid_installments,
+    row.paidInstallments,
+    row.installments_paid,
+    row.installmentsPaid,
+    row.completed_installments,
+    row.completedInstallments,
+    row.installment_paid_count,
+    row.installmentPaidCount,
+    row.current_installment,
+    row.currentInstallment,
+    row.installment_number,
+    row.installmentNumber,
+    row.installment_no,
+    row.installmentNo,
+  );
+  const total = first(
+    row.total_installments,
+    row.totalInstallments,
+    row.installment_total,
+    row.installmentTotal,
+    row.installment_count,
+    row.installmentCount,
+    row.number_of_installments,
+    row.numberOfInstallments,
+  );
+
+  const paidCount = Number(paid);
+  const totalCount = Number(total);
+  if (
+    paid === undefined ||
+    total === undefined ||
+    !Number.isFinite(paidCount) ||
+    !Number.isFinite(totalCount) ||
+    totalCount <= 0
+  )
+    return null;
+
+  const completed = Math.max(0, Math.min(paidCount, totalCount));
+  return {
+    completed,
+    total: totalCount,
+    percentage: Math.round((completed / totalCount) * 100),
+  };
+}
+
+function InstallmentProgress({ progress }) {
+  if (!progress) return null;
+
+  const radius = 15;
+  const circumference = 2 * Math.PI * radius;
+  const offset = circumference * (1 - progress.percentage / 100);
+
+  return (
+    <div
+      className="mt-2 inline-flex items-center gap-2"
+      title={`${progress.completed} of ${progress.total} installments paid (${progress.percentage}%)`}
+      aria-label={`${progress.completed} of ${progress.total} installments paid, ${progress.percentage}%`}
+    >
+      <span className="relative grid h-9 w-9 shrink-0 place-items-center">
+        <svg
+          viewBox="0 0 36 36"
+          className="absolute inset-0 h-9 w-9 -rotate-90"
+          aria-hidden="true"
+        >
+          <circle
+            cx="18"
+            cy="18"
+            r={radius}
+            fill="none"
+            stroke="#e5ebe2"
+            strokeWidth="3.5"
+          />
+          <circle
+            cx="18"
+            cy="18"
+            r={radius}
+            fill="none"
+            stroke="#1b7a5a"
+            strokeWidth="3.5"
+            strokeLinecap="round"
+            strokeDasharray={circumference}
+            strokeDashoffset={offset}
+          />
+        </svg>
+        <span className="text-[9px] font-extrabold leading-none text-[#0b3d2e]">
+          {progress.percentage}%
+        </span>
+      </span>
+      <span className="text-xs font-semibold text-[#5b6b63]">
+        {progress.completed}/{progress.total} installments
+      </span>
+    </div>
+  );
+}
+
 function StatusBadge({ status }) {
   const styles = {
     completed: "bg-emerald-50 text-emerald-700 ring-emerald-600/20",
@@ -940,6 +1039,7 @@ export default function TransactionHistory() {
                 pageRows.map((tx) => {
                   const selected = selectedIds.includes(tx.uuid);
                   const incoming = tx.status === "completed";
+                  const installmentProgress = getInstallmentProgress(tx);
                   return (
                     <tr
                       key={tx.uuid}
@@ -983,9 +1083,14 @@ export default function TransactionHistory() {
                             <p className="font-bold text-[#14231d]">
                               {tx.number}
                             </p>
-                            <p className="mt-1 max-w-[170px] truncate text-xs text-[#839087]">
-                              {tx.note}
-                            </p>
+                            {tx.note && (
+                              <p className="mt-1 max-w-[170px] truncate text-xs text-[#839087]">
+                                {tx.note}
+                              </p>
+                            )}
+                            <InstallmentProgress
+                              progress={installmentProgress}
+                            />
                           </div>
                         </div>
                       </td>

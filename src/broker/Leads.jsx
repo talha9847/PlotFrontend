@@ -473,7 +473,7 @@ export default function LeadsInfo() {
 
         toast("Lead updated successfully.", "success");
       } else {
-        await axios.post("/api/leads/create", leadsData, {
+        await axios.post("/api/leads/createByBroker", leadsData, {
           withCredentials: true,
         });
 
