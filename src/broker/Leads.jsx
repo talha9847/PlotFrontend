@@ -933,19 +933,6 @@ export default function LeadsInfo() {
                 options={CUSTOMER_TYPES}
               />
 
-              <SearchableSelect
-                label="Select Broker"
-                name="brokerId"
-                placeholder="Choose a broker"
-                searchPlaceholder="Search brokers..."
-                options={[{ value: "1", label: "Admin" }, ...brokerOption]}
-                value={form.brokerId}
-                onChange={(event) =>
-                  updateField("brokerId", event.target.value)
-                }
-                required
-              />
-
               <div>
                 <Input
                   label="Mobile number"

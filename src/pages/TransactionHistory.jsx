@@ -1,223 +1,28 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ArrowDownLeft,
   ArrowUpRight,
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
-  CalendarDays,
-  Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   Download,
-  Filter,
   Search,
   SlidersHorizontal,
-  Wallet,
   X,
 } from "lucide-react";
+import SearchableLeadSelect from "../components/common/SearchableLeadSelect";
+import SearchablePlotSelect2 from "../components/common/SearchablePlotSelect2";
+import Select from "../components/common/Select";
+import { useToast } from "../components/common/Toast";
+import axios from "axios";
 
 const DISPLAY = { fontFamily: "'Fraunces', Georgia, serif" };
 const GOLD = "#e4c48a";
 
-const CUSTOMERS = [
-  { uuid: "cus-001", name: "Aarav Patel", phone: "9876543210" },
-  { uuid: "cus-002", name: "Fatima Shaikh", phone: "9825012345" },
-  { uuid: "cus-003", name: "Rohan Mehta", phone: "9898012345" },
-  { uuid: "cus-004", name: "Priya Desai", phone: "9712345678" },
-  { uuid: "cus-005", name: "Imran Malek", phone: "9909012345" },
-  { uuid: "cus-006", name: "Neha Shah", phone: "9723456789" },
-];
-
-const PLOTS = [
-  { uuid: "plot-001", number: "A-101", project: "Green Valley" },
-  { uuid: "plot-002", number: "A-102", project: "Green Valley" },
-  { uuid: "plot-003", number: "B-204", project: "Sunrise Residency" },
-  { uuid: "plot-004", number: "C-012", project: "Riverfront Enclave" },
-  { uuid: "plot-005", number: "C-013", project: "Riverfront Enclave" },
-  { uuid: "plot-006", number: "D-008", project: "Sunrise Residency" },
-];
-
-const ACCOUNTS = [
-  { uuid: "acc-001", name: "HDFC Bank", detail: "Current account" },
-  { uuid: "acc-002", name: "ICICI Bank", detail: "Collection account" },
-  { uuid: "acc-003", name: "Cash Account", detail: "Office collections" },
-];
-
-const TRANSACTIONS = [
-  {
-    uuid: "txn-001",
-    number: "PAY-2026-0108",
-    date: "2026-10-18T10:30:00",
-    customerUuid: "cus-001",
-    plotUuid: "plot-001",
-    accountUuid: "acc-001",
-    method: "upi",
-    status: "completed",
-    amount: 50000,
-    booking: "BK-1001",
-    receivedBy: "Ayesha Khan",
-    note: "October installment",
-  },
-  {
-    uuid: "txn-002",
-    number: "PAY-2026-0107",
-    date: "2026-10-17T15:15:00",
-    customerUuid: "cus-002",
-    plotUuid: "plot-003",
-    accountUuid: "acc-003",
-    method: "cash",
-    status: "completed",
-    amount: 25000,
-    booking: "BK-1002",
-    receivedBy: "Rahul Patel",
-    note: "Booking payment",
-  },
-  {
-    uuid: "txn-003",
-    number: "PAY-2026-0106",
-    date: "2026-10-16T12:20:00",
-    customerUuid: "cus-003",
-    plotUuid: "plot-004",
-    accountUuid: "acc-002",
-    method: "bank_transfer",
-    status: "refunded",
-    amount: 10000,
-    booking: "BK-1003",
-    receivedBy: "Ayesha Khan",
-    note: "Payment refund",
-  },
-  {
-    uuid: "txn-004",
-    number: "PAY-2026-0105",
-    date: "2026-10-15T09:45:00",
-    customerUuid: "cus-004",
-    plotUuid: "plot-002",
-    accountUuid: "acc-001",
-    method: "cheque",
-    status: "pending",
-    amount: 75000,
-    booking: "BK-1004",
-    receivedBy: "Mehul Shah",
-    note: "Cheque under clearance",
-  },
-  {
-    uuid: "txn-005",
-    number: "PAY-2026-0104",
-    date: "2026-10-12T16:05:00",
-    customerUuid: "cus-005",
-    plotUuid: "plot-006",
-    accountUuid: "acc-003",
-    method: "cash",
-    status: "completed",
-    amount: 15000,
-    booking: "BK-1005",
-    receivedBy: "Rahul Patel",
-    note: "Part payment",
-  },
-  {
-    uuid: "txn-006",
-    number: "PAY-2026-0103",
-    date: "2026-10-09T11:25:00",
-    customerUuid: "cus-006",
-    plotUuid: "plot-005",
-    accountUuid: "acc-002",
-    method: "upi",
-    status: "failed",
-    amount: 12000,
-    booking: "BK-1006",
-    receivedBy: "Mehul Shah",
-    note: "UPI payment failed",
-  },
-  {
-    uuid: "txn-007",
-    number: "PAY-2026-0102",
-    date: "2026-10-06T13:50:00",
-    customerUuid: "cus-001",
-    plotUuid: "plot-001",
-    accountUuid: "acc-001",
-    method: "bank_transfer",
-    status: "completed",
-    amount: 100000,
-    booking: "BK-1001",
-    receivedBy: "Ayesha Khan",
-    note: "Down payment",
-  },
-  {
-    uuid: "txn-008",
-    number: "PAY-2026-0101",
-    date: "2026-10-02T10:10:00",
-    customerUuid: "cus-002",
-    plotUuid: "plot-003",
-    accountUuid: "acc-002",
-    method: "card",
-    status: "cancelled",
-    amount: 8000,
-    booking: "BK-1002",
-    receivedBy: "Rahul Patel",
-    note: "Cancelled transaction",
-  },
-  {
-    uuid: "txn-009",
-    number: "PAY-2026-0099",
-    date: "2026-09-29T14:35:00",
-    customerUuid: "cus-004",
-    plotUuid: "plot-002",
-    accountUuid: "acc-001",
-    method: "upi",
-    status: "completed",
-    amount: 30000,
-    booking: "BK-1004",
-    receivedBy: "Mehul Shah",
-    note: "September installment",
-  },
-  {
-    uuid: "txn-010",
-    number: "PAY-2026-0098",
-    date: "2026-09-21T12:00:00",
-    customerUuid: "cus-003",
-    plotUuid: "plot-004",
-    accountUuid: "acc-002",
-    method: "bank_transfer",
-    status: "completed",
-    amount: 45000,
-    booking: "BK-1003",
-    receivedBy: "Ayesha Khan",
-    note: "Installment payment",
-  },
-  {
-    uuid: "txn-011",
-    number: "PAY-2026-0097",
-    date: "2026-09-16T17:10:00",
-    customerUuid: "cus-005",
-    plotUuid: "plot-006",
-    accountUuid: "acc-003",
-    method: "cash",
-    status: "pending",
-    amount: 20000,
-    booking: "BK-1005",
-    receivedBy: "Rahul Patel",
-    note: "Cash receipt pending verification",
-  },
-  {
-    uuid: "txn-012",
-    number: "PAY-2026-0096",
-    date: "2026-09-04T09:20:00",
-    customerUuid: "cus-006",
-    plotUuid: "plot-005",
-    accountUuid: "acc-001",
-    method: "cheque",
-    status: "completed",
-    amount: 60000,
-    booking: "BK-1006",
-    receivedBy: "Mehul Shah",
-    note: "Booking installment",
-  },
-];
-
 const METHODS = [
-  ["All", "All methods"],
   ["cash", "Cash"],
   ["upi", "UPI"],
   ["bank_transfer", "Bank transfer"],
@@ -227,7 +32,7 @@ const METHODS = [
 ];
 
 const STATUSES = [
-  ["All", "All statuses"],
+  ["", "All statuses"],
   ["pending", "Pending"],
   ["completed", "Completed"],
   ["failed", "Failed"],
@@ -235,6 +40,46 @@ const STATUSES = [
   ["partially_refunded", "Partially refunded"],
   ["refunded", "Refunded"],
 ];
+
+const first = (...values) =>
+  values.find((value) => value !== undefined && value !== null);
+
+function normalizeTransaction(row) {
+  const id = first(row.id, row.uuid, row.payment_id);
+  return {
+    ...row,
+    id,
+    uuid: String(first(row.uuid, row.id, row.payment_id, "")),
+    number: first(row.payment_number, row.paymentNumber, row.number, "—"),
+    date: first(row.payment_date, row.paymentDate, row.date, ""),
+    customerId: first(
+      row.customer_id,
+      row.customerId,
+      row.customer_uuid,
+      row.customerUuid,
+      "",
+    ),
+    customerName: first(row.customer_name, row.customerName, row.name, "—"),
+    customerPhone: first(row.customer_phone, row.customerPhone, row.phone, "—"),
+    projectId: first(row.project_id, row.projectId, ""),
+    projectName: first(row.project_name, row.projectName, row.project, "—"),
+    plotId: first(row.plot_id, row.plotId, ""),
+    plotNumber: first(row.plot_number, row.plotNumber, "—"),
+    accountId: first(row.account_id, row.accountId, ""),
+    accountName: first(row.account_name, row.accountName, "—"),
+    method: first(row.payment_method, row.paymentMethod, row.method, "other"),
+    status: first(row.status, "pending"),
+    amount: Number(first(row.amount, 0)),
+    booking: first(row.booking_number, row.bookingNumber, row.booking, "—"),
+    receivedBy: first(
+      row.received_by_name,
+      row.receivedBy,
+      row.received_by,
+      "—",
+    ),
+    note: first(row.notes, row.note, ""),
+  };
+}
 
 const formatINR = (amount) =>
   new Intl.NumberFormat("en-IN", {
@@ -267,171 +112,13 @@ function StatusBadge({ status }) {
     refunded: "bg-blue-50 text-blue-700 ring-blue-600/20",
     partially_refunded: "bg-violet-50 text-violet-700 ring-violet-600/20",
   };
-  const label = status.replaceAll("_", " ");
+  const label = String(status || "pending").replaceAll("_", " ");
   return (
     <span
       className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold capitalize ring-1 ring-inset ${styles[status] || styles.pending}`}
     >
       {label}
     </span>
-  );
-}
-
-function SearchableDummySelect({
-  label,
-  placeholder,
-  searchPlaceholder,
-  options,
-  value,
-  onChange,
-  getLabel,
-  getSubtitle,
-}) {
-  const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState("");
-  const ref = useRef(null);
-  const inputRef = useRef(null);
-
-  const selected = options.find((option) => option.uuid === value);
-  const filtered = options.filter((option) =>
-    `${getLabel(option)} ${getSubtitle(option)}`
-      .toLowerCase()
-      .includes(search.toLowerCase()),
-  );
-
-  useEffect(() => {
-    function close(event) {
-      if (!ref.current?.contains(event.target)) setOpen(false);
-    }
-    function escape(event) {
-      if (event.key === "Escape") setOpen(false);
-    }
-    document.addEventListener("mousedown", close);
-    document.addEventListener("keydown", escape);
-    return () => {
-      document.removeEventListener("mousedown", close);
-      document.removeEventListener("keydown", escape);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (open) inputRef.current?.focus();
-  }, [open]);
-
-  return (
-    <div className="relative min-w-0" ref={ref}>
-      <label className="mb-1.5 block text-xs font-bold text-[#5b6b63]">
-        {label}
-      </label>
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen((current) => !current)}
-        className="flex min-h-11 w-full items-center justify-between gap-2 rounded-xl border border-[#dfe5dc] bg-white px-3 py-2 text-left text-sm outline-none transition hover:border-[#b9c9bc] focus:border-[#1b7a5a]"
-      >
-        <span
-          className={`truncate ${selected ? "text-[#14231d]" : "text-slate-400"}`}
-        >
-          {selected ? getLabel(selected) : placeholder}
-        </span>
-        <span className="flex shrink-0 items-center gap-1">
-          {selected && (
-            <span
-              role="button"
-              tabIndex={0}
-              aria-label={`Clear ${label}`}
-              onClick={(event) => {
-                event.stopPropagation();
-                onChange("");
-                setSearch("");
-              }}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  onChange("");
-                  setSearch("");
-                }
-              }}
-              className="rounded p-0.5 text-slate-400 hover:bg-slate-100"
-            >
-              <X size={14} />
-            </span>
-          )}
-          <ChevronDown
-            size={15}
-            className={`text-slate-400 transition ${open ? "rotate-180" : ""}`}
-          />
-        </span>
-      </button>
-      {open && (
-        <div className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-xl border border-[#dfe5dc] bg-white shadow-xl">
-          <div className="border-b border-[#edf0eb] p-2">
-            <div className="flex items-center gap-2 rounded-lg border border-[#dfe5dc] px-2.5">
-              <Search size={15} className="text-slate-400" />
-              <input
-                ref={inputRef}
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder={searchPlaceholder}
-                className="h-9 w-full min-w-0 bg-transparent text-sm outline-none"
-              />
-              {search && (
-                <button
-                  type="button"
-                  onClick={() => setSearch("")}
-                  aria-label="Clear search"
-                >
-                  <X size={13} />
-                </button>
-              )}
-            </div>
-          </div>
-          <ul role="listbox" className="max-h-56 overflow-y-auto p-1.5">
-            <li
-              role="option"
-              aria-selected={!value}
-              onClick={() => {
-                onChange("");
-                setOpen(false);
-                setSearch("");
-              }}
-              className={`cursor-pointer rounded-lg px-3 py-2.5 text-sm ${!value ? "bg-[#e9f3ee] text-[#1b7a5a]" : "hover:bg-slate-50"}`}
-            >
-              {placeholder}
-            </li>
-            {filtered.length ? (
-              filtered.map((option) => (
-                <li
-                  key={option.uuid}
-                  role="option"
-                  aria-selected={value === option.uuid}
-                  onClick={() => {
-                    onChange(option.uuid);
-                    setOpen(false);
-                    setSearch("");
-                  }}
-                  className={`flex cursor-pointer items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-sm ${value === option.uuid ? "bg-[#e9f3ee] text-[#1b7a5a]" : "hover:bg-slate-50"}`}
-                >
-                  <span className="min-w-0">
-                    <span className="block truncate font-semibold">
-                      {getLabel(option)}
-                    </span>
-                    <span className="mt-0.5 block truncate text-xs text-slate-500">
-                      {getSubtitle(option)}
-                    </span>
-                  </span>
-                  {value === option.uuid && <Check size={15} />}
-                </li>
-              ))
-            ) : (
-              <li className="px-3 py-6 text-center text-sm text-slate-500">
-                No results found.
-              </li>
-            )}
-          </ul>
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -459,14 +146,10 @@ function SortableHeader({ label, column, sortBy, sortOrder, onSort }) {
   );
 }
 
-export default function TransactionHistoryDummy() {
-  const [transactions] = useState(TRANSACTIONS);
+export default function TransactionHistory() {
+  const [transactions, setTransactions] = useState([]);
   const [search, setSearch] = useState("");
-  const [customerUuid, setCustomerUuid] = useState("");
-  const [plotUuid, setPlotUuid] = useState("");
-  const [accountUuid, setAccountUuid] = useState("");
-  const [method, setMethod] = useState("All");
-  const [status, setStatus] = useState("All");
+  const [status, setStatus] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [minAmount, setMinAmount] = useState("");
@@ -476,86 +159,172 @@ export default function TransactionHistoryDummy() {
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(8);
   const [selectedIds, setSelectedIds] = useState([]);
+  const [selectedTransactions, setSelectedTransactions] = useState({});
   const [showFilters, setShowFilters] = useState(false);
   const [detail, setDetail] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [loadingAccounts, setLoadingAccounts] = useState(false);
+  const [accounts, setAccounts] = useState([]);
+  const [projects, setProjects] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [summary, setSummary] = useState({
+    completedTotal: 0,
+    pendingTotal: 0,
+    refundedTotal: 0,
+  });
+  const toast = useToast();
 
-  const customerById = useMemo(
-    () => Object.fromEntries(CUSTOMERS.map((item) => [item.uuid, item])),
-    [],
-  );
-  const plotById = useMemo(
-    () => Object.fromEntries(PLOTS.map((item) => [item.uuid, item])),
-    [],
-  );
-  const accountById = useMemo(
-    () => Object.fromEntries(ACCOUNTS.map((item) => [item.uuid, item])),
-    [],
-  );
+  const [filters, setFilters] = useState({
+    customer_id: "",
+    project_id: "",
+    plot_id: "",
+    account_id: "",
+    payment_method: "",
+  });
 
-  const filtered = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    const result = transactions.filter((tx) => {
-      const customer = customerById[tx.customerUuid];
-      const plot = plotById[tx.plotUuid];
-      const account = accountById[tx.accountUuid];
-      const matchesSearch =
-        !term ||
-        [
-          tx.number,
-          tx.booking,
-          tx.note,
-          tx.method,
-          tx.status,
-          customer?.name,
-          customer?.phone,
-          plot?.number,
-          plot?.project,
-          account?.name,
-        ].some((value) =>
-          String(value || "")
-            .toLowerCase()
-            .includes(term),
-        );
-      const day = tx.date.slice(0, 10);
-      return (
-        matchesSearch &&
-        (!customerUuid || tx.customerUuid === customerUuid) &&
-        (!plotUuid || tx.plotUuid === plotUuid) &&
-        (!accountUuid || tx.accountUuid === accountUuid) &&
-        (method === "All" || tx.method === method) &&
-        (status === "All" || tx.status === status) &&
-        (!startDate || day >= startDate) &&
-        (!endDate || day <= endDate) &&
-        (minAmount === "" || tx.amount >= Number(minAmount)) &&
-        (maxAmount === "" || tx.amount <= Number(maxAmount))
+  const getProjects = async () => {
+    try {
+      const res = await axios.get("/api/plots/projects", {
+        withCredentials: true,
+      });
+      if (res.status === 200) setProjects(res.data?.data?.projects || []);
+    } catch (error) {
+      console.error("Failed to load projects:", error);
+    }
+  };
+
+  const getAccounts = async () => {
+    setLoadingAccounts(true);
+    try {
+      const res = await axios.get("/api/accounts", { withCredentials: true });
+      if (res.status === 200) setAccounts(res.data?.data?.accounts || []);
+    } catch (error) {
+      toast(
+        error.response?.data?.message || "Failed to load bank accounts.",
+        "error",
       );
-    });
+    } finally {
+      setLoadingAccounts(false);
+    }
+  };
 
-    const getSortValue = (tx) => {
-      if (sortBy === "amount") return tx.amount;
-      if (sortBy === "customer")
-        return customerById[tx.customerUuid]?.name || "";
-      if (sortBy === "number") return tx.number;
-      if (sortBy === "status") return tx.status;
-      return new Date(tx.date).getTime();
+  const buildParams = (includePagination = true) => {
+    console.log(filters);
+    const params = {
+      search: search.trim() || undefined,
+      customer_id: filters.customer_id || undefined,
+      project_id: filters.project_id || undefined,
+      plot_id: filters.plot_id || undefined,
+      account_id: filters.account_id || undefined,
+      payment_method: filters.payment_method || undefined,
+      status: status || undefined,
+      start_date: startDate || undefined,
+      end_date: endDate || undefined,
+      min_amount: minAmount === "" ? undefined : minAmount,
+      max_amount: maxAmount === "" ? undefined : maxAmount,
+      sort_by: sortBy,
+      sort_order: sortOrder,
     };
-    result.sort((a, b) => {
-      const av = getSortValue(a);
-      const bv = getSortValue(b);
-      const comparison =
-        typeof av === "number" && typeof bv === "number"
-          ? av - bv
-          : String(av).localeCompare(String(bv));
-      return sortOrder === "asc" ? comparison : -comparison;
-    });
-    return result;
+    if (includePagination) {
+      params.page = page;
+      params.limit = limit;
+    }
+    return params;
+  };
+
+  const fetchTransactions = async () => {
+    setLoading(true);
+    try {
+      const res = await axios.get("/api/transactions", {
+        params: buildParams(true),
+        withCredentials: true,
+      });
+      const payload = res.data || {};
+      const data = payload.data || {};
+      const rows =
+        data.transactions ||
+        payload.transactions ||
+        (Array.isArray(data) ? data : []);
+      setTransactions(rows.map(normalizeTransaction));
+      const pagination = payload.pagination || data.pagination || {};
+      const nextTotal =
+        Number(
+          first(
+            pagination.total,
+            pagination.totalRecords,
+            payload.total,
+            rows.length,
+          ),
+        ) || 0;
+      setTotal(nextTotal);
+      setTotalPages(
+        Math.max(
+          1,
+          Number(
+            first(
+              pagination.totalPages,
+              pagination.total_pages,
+              Math.ceil(nextTotal / limit),
+            ),
+          ) || 1,
+        ),
+      );
+      const totals = payload.summary || data.summary || {};
+      setSummary({
+        completedTotal:
+          Number(
+            first(
+              totals.completedTotal,
+              totals.completed_total,
+              totals.completed_amount,
+              0,
+            ),
+          ) || 0,
+        pendingTotal:
+          Number(
+            first(
+              totals.pendingTotal,
+              totals.pending_total,
+              totals.pending_amount,
+              0,
+            ),
+          ) || 0,
+        refundedTotal:
+          Number(
+            first(
+              totals.refundedTotal,
+              totals.refunded_total,
+              totals.refunded_amount,
+              0,
+            ),
+          ) || 0,
+      });
+    } catch (error) {
+      toast(
+        error.response?.data?.message || "Failed to load transactions.",
+        "error",
+      );
+      setTransactions([]);
+      setTotal(0);
+      setTotalPages(1);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    getAccounts();
+    getProjects();
+  }, []);
+
+  useEffect(() => {
+    fetchTransactions();
+    // API requests are intentionally triggered whenever a query parameter changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    transactions,
     search,
-    customerUuid,
-    plotUuid,
-    accountUuid,
-    method,
+    filters,
     status,
     startDate,
     endDate,
@@ -563,44 +332,39 @@ export default function TransactionHistoryDummy() {
     maxAmount,
     sortBy,
     sortOrder,
-    customerById,
-    plotById,
-    accountById,
+    page,
+    limit,
   ]);
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / limit));
   const currentPage = Math.min(page, totalPages);
-  const pageRows = filtered.slice(
-    (currentPage - 1) * limit,
-    currentPage * limit,
-  );
+  const pageRows = transactions;
   const pageIds = pageRows.map((item) => item.uuid);
   const allPageSelected =
     pageIds.length > 0 && pageIds.every((id) => selectedIds.includes(id));
-  const completedTotal = filtered
-    .filter((tx) => tx.status === "completed")
-    .reduce((sum, tx) => sum + tx.amount, 0);
-  const pendingTotal = filtered
-    .filter((tx) => tx.status === "pending")
-    .reduce((sum, tx) => sum + tx.amount, 0);
-  const refundedTotal = filtered
-    .filter(
-      (tx) => tx.status === "refunded" || tx.status === "partially_refunded",
-    )
-    .reduce((sum, tx) => sum + tx.amount, 0);
+  const completedTotal = summary.completedTotal;
+  const pendingTotal = summary.pendingTotal;
+  const refundedTotal = summary.refundedTotal;
 
-  function updateFilter(setter, value) {
-    setter(value);
+  // One updater for both individual state values and the filters object.
+  function updateFilter(fieldOrSetter, value) {
+    if (typeof fieldOrSetter === "function") {
+      fieldOrSetter(value);
+    } else {
+      setFilters((prev) => ({ ...prev, [fieldOrSetter]: value }));
+    }
     setPage(1);
   }
 
   function resetFilters() {
     setSearch("");
-    setCustomerUuid("");
-    setPlotUuid("");
-    setAccountUuid("");
-    setMethod("All");
-    setStatus("All");
+    setFilters({
+      customer_id: "",
+      project_id: "",
+      plot_id: "",
+      account_id: "",
+      payment_method: "",
+    });
+    setStatus("");
     setStartDate("");
     setEndDate("");
     setMinAmount("");
@@ -609,6 +373,7 @@ export default function TransactionHistoryDummy() {
     setSortOrder("desc");
     setPage(1);
     setSelectedIds([]);
+    setSelectedTransactions({});
   }
 
   function handleSort(column) {
@@ -621,62 +386,88 @@ export default function TransactionHistoryDummy() {
     setPage(1);
   }
 
-  function exportCsv(mode = "filtered") {
-    const rows =
-      mode === "selected"
-        ? filtered.filter((tx) => selectedIds.includes(tx.uuid))
-        : filtered;
-    if (!rows.length) {
-      window.alert("There are no transactions to export.");
-      return;
-    }
-    const headers = [
-      "Transaction ID",
-      "Date",
-      "Customer",
-      "Phone",
-      "Project",
-      "Plot",
-      "Booking",
-      "Account",
-      "Payment method",
-      "Status",
-      "Amount",
-      "Received by",
-      "Notes",
-    ];
-    const data = rows.map((tx) => {
-      const customer = customerById[tx.customerUuid];
-      const plot = plotById[tx.plotUuid];
-      const account = accountById[tx.accountUuid];
-      return [
+  async function exportCsv(mode = "filtered") {
+    try {
+      let rows = [];
+      if (mode === "selected") {
+        rows = Object.values(selectedTransactions).filter((tx) =>
+          selectedIds.includes(tx.uuid),
+        );
+        // Also include selected records on the currently displayed page.
+        pageRows.forEach((tx) => {
+          if (
+            selectedIds.includes(tx.uuid) &&
+            !rows.some((row) => row.uuid === tx.uuid)
+          )
+            rows.push(tx);
+        });
+      } else {
+        const res = await axios.get("/api/transactions/export", {
+          params: buildParams(false),
+          withCredentials: true,
+        });
+        const payload = res.data || {};
+        const data = payload.data || {};
+        const rawRows = Array.isArray(data)
+          ? data
+          : data.transactions || payload.transactions || data.data || [];
+        rows = rawRows.map(normalizeTransaction);
+      }
+
+      if (!rows.length) {
+        toast("There are no transactions to export.", "error");
+        return;
+      }
+      const headers = [
+        "Transaction ID",
+        "Date",
+        "Customer",
+        "Phone",
+        "Project",
+        "Plot",
+        "Booking",
+        "Account",
+        "Payment method",
+        "Status",
+        "Amount",
+        "Received by",
+        "Notes",
+      ];
+      const data = rows.map((tx) => [
         tx.number,
         tx.date,
-        customer?.name,
-        customer?.phone,
-        plot?.project,
-        plot?.number,
+        tx.customerName,
+        tx.customerPhone,
+        tx.projectName,
+        tx.plotNumber,
         tx.booking,
-        account?.name,
+        tx.accountName,
         tx.method,
         tx.status,
         tx.amount,
         tx.receivedBy,
         tx.note,
-      ];
-    });
-    const escapeCell = (value) =>
-      `"${String(value ?? "").replace(/"/g, '""')}"`;
-    const csv = [headers, ...data]
-      .map((row) => row.map(escapeCell).join(","))
-      .join("\r\n");
-    const blob = new Blob(["\uFEFF", csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `transactions-${mode}-${new Date().toISOString().slice(0, 10)}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
+      ]);
+      const escapeCell = (value) =>
+        `"${String(value ?? "").replace(/"/g, '""')}"`;
+      const csv = [headers, ...data]
+        .map((row) => row.map(escapeCell).join(","))
+        .join("\r\n");
+      const blob = new Blob(["\uFEFF", csv], {
+        type: "text/csv;charset=utf-8;",
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `transactions-${mode}-${new Date().toISOString().slice(0, 10)}.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      toast(
+        error.response?.data?.message || "Failed to export transactions.",
+        "error",
+      );
+    }
   }
 
   return (
@@ -717,7 +508,7 @@ export default function TransactionHistoryDummy() {
                 onClick={() => exportCsv("filtered")}
                 className="w-full rounded-lg px-3 py-2.5 text-left text-sm hover:bg-slate-50"
               >
-                Export all filtered results ({filtered.length})
+                Export all filtered results ({total})
               </button>
               <button
                 type="button"
@@ -802,63 +593,72 @@ export default function TransactionHistoryDummy() {
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <SearchableDummySelect
+            <SearchableLeadSelect
               label="Customer"
-              placeholder="All customers"
-              searchPlaceholder="Search name or phone..."
-              options={CUSTOMERS}
-              value={customerUuid}
-              onChange={(value) => updateFilter(setCustomerUuid, value)}
-              getLabel={(item) => item.name}
-              getSubtitle={(item) => item.phone}
+              name="customer_id"
+              apiUrl="/api/customers/dropdown"
+              value={filters.customer_id}
+              onChange={(value) =>
+                updateFilter("customer_id", value.target.value)
+              }
+              placeholder="Select customer"
+              searchPlaceholder="Search by name or phone..."
             />
-            <SearchableDummySelect
-              label="Plot / project"
-              placeholder="All plots"
-              searchPlaceholder="Search plot or project..."
-              options={PLOTS}
-              value={plotUuid}
-              onChange={(value) => updateFilter(setPlotUuid, value)}
-              getLabel={(item) => item.number}
-              getSubtitle={(item) => item.project}
+
+            <Select
+              id="project_id"
+              name="project_id"
+              label="Project"
+              value={filters.project_id}
+              onChange={(value) =>
+                updateFilter("project_id", value.target.value)
+              }
+              placeholder="Select project"
+              options={projects.map((project) => ({
+                value: String(project.id),
+                label: project.name,
+              }))}
             />
-            <div>
-              <label className="mb-1.5 block text-xs font-bold text-[#5b6b63]">
-                Account
-              </label>
-              <select
-                value={accountUuid}
-                onChange={(event) =>
-                  updateFilter(setAccountUuid, event.target.value)
-                }
-                className="min-h-11 w-full rounded-xl border border-[#dfe5dc] bg-white px-3 text-sm outline-none focus:border-[#1b7a5a]"
-              >
-                <option value="">All accounts</option>
-                {ACCOUNTS.map((account) => (
-                  <option key={account.uuid} value={account.uuid}>
-                    {account.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="mb-1.5 block text-xs font-bold text-[#5b6b63]">
-                Payment method
-              </label>
-              <select
-                value={method}
-                onChange={(event) =>
-                  updateFilter(setMethod, event.target.value)
-                }
-                className="min-h-11 w-full rounded-xl border border-[#dfe5dc] bg-white px-3 text-sm outline-none focus:border-[#1b7a5a]"
-              >
-                {METHODS.map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </div>
+
+            <SearchablePlotSelect2
+              label="Plot"
+              name="plot_id"
+              value={filters.plot_id}
+              onChange={(value) => updateFilter("plot_id", value.target.value)}
+              placeholder="Select plot"
+              searchPlaceholder="Search by plot number..."
+            />
+
+            <Select
+              id="account_id"
+              name="account_id"
+              label="Receiving Account"
+              value={filters.account_id}
+              onChange={(value) =>
+                updateFilter("account_id", value.target.value)
+              }
+              placeholder="Select receiving account"
+              disabled={loadingAccounts || accounts.length === 0}
+              options={accounts.map((account) => ({
+                value: String(account.id),
+                label: `${account.account_name} — ${account.bank_name}`,
+              }))}
+            />
+
+            <Select
+              id="payment_method"
+              name="payment_method"
+              label="Payment Method"
+              value={filters.payment_method}
+              onChange={(value) => updateFilter("payment_method", value)}
+              placeholder="All payment methods"
+              options={METHODS.filter(([value]) => value !== "All").map(
+                ([value, label]) => ({
+                  value,
+                  label,
+                }),
+              )}
+            />
           </div>
 
           {showFilters && (
@@ -954,8 +754,8 @@ export default function TransactionHistoryDummy() {
           )}
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-xs text-[#5b6b63]">
-              {filtered.length} matching transaction
-              {filtered.length === 1 ? "" : "s"} · dummy data
+              {total} matching transaction
+              {total === 1 ? "" : "s"} · live results
             </p>
             <label className="flex items-center gap-2 text-xs text-[#5b6b63]">
               Sort by
@@ -1017,11 +817,19 @@ export default function TransactionHistoryDummy() {
                     aria-label="Select current page"
                     checked={allPageSelected}
                     onChange={(event) =>
-                      setSelectedIds((current) =>
-                        event.target.checked
+                      setSelectedIds((current) => {
+                        const next = event.target.checked
                           ? [...new Set([...current, ...pageIds])]
-                          : current.filter((id) => !pageIds.includes(id)),
-                      )
+                          : current.filter((id) => !pageIds.includes(id));
+                        setSelectedTransactions((cached) => {
+                          const updated = { ...cached };
+                          pageRows.forEach((tx) => {
+                            if (event.target.checked) updated[tx.uuid] = tx;
+                          });
+                          return updated;
+                        });
+                        return next;
+                      })
                     }
                   />
                 </th>
@@ -1061,9 +869,6 @@ export default function TransactionHistoryDummy() {
             <tbody>
               {pageRows.length ? (
                 pageRows.map((tx) => {
-                  const customer = customerById[tx.customerUuid];
-                  const plot = plotById[tx.plotUuid];
-                  const account = accountById[tx.accountUuid];
                   const selected = selectedIds.includes(tx.uuid);
                   const incoming = tx.status === "completed";
                   return (
@@ -1081,11 +886,16 @@ export default function TransactionHistoryDummy() {
                           aria-label={`Select ${tx.number}`}
                           checked={selected}
                           onChange={(event) =>
-                            setSelectedIds((current) =>
-                              event.target.checked
-                                ? [...current, tx.uuid]
-                                : current.filter((id) => id !== tx.uuid),
-                            )
+                            setSelectedIds((current) => {
+                              const next = event.target.checked
+                                ? [...new Set([...current, tx.uuid])]
+                                : current.filter((id) => id !== tx.uuid);
+                              setSelectedTransactions((cached) => ({
+                                ...cached,
+                                [tx.uuid]: tx,
+                              }));
+                              return next;
+                            })
                           }
                         />
                       </td>
@@ -1111,21 +921,23 @@ export default function TransactionHistoryDummy() {
                         </div>
                       </td>
                       <td className="px-4 py-4">
-                        <p className="font-semibold">{customer?.name || "—"}</p>
+                        <p className="font-semibold">
+                          {tx.customerName || "—"}
+                        </p>
                         <p className="mt-1 text-xs text-[#839087]">
-                          {customer?.phone || "—"}
+                          {tx.customerPhone || "—"}
                         </p>
                       </td>
                       <td className="px-4 py-4">
-                        <p className="font-semibold">{plot?.number || "—"}</p>
+                        <p className="font-semibold">{tx.plotNumber || "—"}</p>
                         <p className="mt-1 text-xs text-[#839087]">
-                          {plot?.project || "—"} · {tx.booking}
+                          {tx.projectName || "—"} · {tx.booking}
                         </p>
                       </td>
                       <td className="px-4 py-4">
-                        <p className="font-semibold">{account?.name || "—"}</p>
+                        <p className="font-semibold">{tx.accountName || "—"}</p>
                         <p className="mt-1 text-xs capitalize text-[#839087]">
-                          {tx.method.replaceAll("_", " ")}
+                          {String(tx.method || "other").replaceAll("_", " ")}
                         </p>
                       </td>
                       <td className="whitespace-nowrap px-4 py-4 text-xs text-[#5b6b63]">
@@ -1151,7 +963,11 @@ export default function TransactionHistoryDummy() {
                     <span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-[#e9f3ee] text-[#1b7a5a]">
                       <Search size={20} />
                     </span>
-                    <p className="mt-4 font-bold">No transactions found</p>
+                    <p className="mt-4 font-bold">
+                      {loading
+                        ? "Loading transactions…"
+                        : "No transactions found"}
+                    </p>
                     <p className="mt-1 text-xs text-[#5b6b63]">
                       Try a different search or clear your filters.
                     </p>
@@ -1173,13 +989,13 @@ export default function TransactionHistoryDummy() {
           <p className="text-xs text-[#5b6b63]">
             Showing{" "}
             <b className="text-[#14231d]">
-              {filtered.length ? (currentPage - 1) * limit + 1 : 0}
+              {total ? (currentPage - 1) * limit + 1 : 0}
             </b>
             –
             <b className="text-[#14231d]">
-              {Math.min(currentPage * limit, filtered.length)}
+              {Math.min(currentPage * limit, total)}
             </b>{" "}
-            of <b className="text-[#14231d]">{filtered.length}</b> transactions
+            of <b className="text-[#14231d]">{total}</b> transactions
           </p>
           <div className="flex items-center gap-2">
             <span className="mr-2 text-xs text-[#5b6b63]">
@@ -1188,7 +1004,7 @@ export default function TransactionHistoryDummy() {
             <button
               type="button"
               onClick={() => setPage((current) => Math.max(1, current - 1))}
-              disabled={currentPage <= 1}
+              disabled={loading || currentPage <= 1}
               aria-label="Previous page"
               className="grid h-9 w-9 place-items-center rounded-lg border border-[#dfe5dc] bg-white text-[#0b3d2e] disabled:opacity-40"
             >
@@ -1199,7 +1015,7 @@ export default function TransactionHistoryDummy() {
               onClick={() =>
                 setPage((current) => Math.min(totalPages, current + 1))
               }
-              disabled={currentPage >= totalPages}
+              disabled={loading || currentPage >= totalPages}
               aria-label="Next page"
               className="grid h-9 w-9 place-items-center rounded-lg border border-[#dfe5dc] bg-white text-[#0b3d2e] disabled:opacity-40"
             >
@@ -1256,13 +1072,16 @@ export default function TransactionHistoryDummy() {
             </div>
             <dl className="mt-4 divide-y divide-[#eef2ec] text-sm">
               {[
-                ["Customer", customerById[detail.customerUuid]?.name],
-                ["Phone", customerById[detail.customerUuid]?.phone],
-                ["Project", plotById[detail.plotUuid]?.project],
-                ["Plot", plotById[detail.plotUuid]?.number],
+                ["Customer", detail.customerName],
+                ["Phone", detail.customerPhone],
+                ["Project", detail.projectName],
+                ["Plot", detail.plotNumber],
                 ["Booking", detail.booking],
-                ["Account", accountById[detail.accountUuid]?.name],
-                ["Payment method", detail.method.replaceAll("_", " ")],
+                ["Account", detail.accountName],
+                [
+                  "Payment method",
+                  String(detail.method || "other").replaceAll("_", " "),
+                ],
                 ["Date", formatDate(detail.date)],
                 ["Received by", detail.receivedBy],
                 ["Notes", detail.note],
@@ -1279,7 +1098,7 @@ export default function TransactionHistoryDummy() {
         </div>
       )}
       <p className="text-center text-xs text-[#839087]">
-        Demo screen · all transaction and account records are dummy data.
+        Transaction history is loaded from your payments API.
       </p>
     </div>
   );

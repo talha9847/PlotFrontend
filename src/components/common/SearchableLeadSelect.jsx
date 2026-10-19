@@ -108,6 +108,8 @@ const SearchableLeadSelect = forwardRef(function SearchableLeadSelect(
             throw new Error(result.message || "Failed to fetch leads");
           }
 
+          console.log(result.data)
+
           setLeads(result.data || []);
         } catch (err) {
           if (err.name !== "AbortError") {

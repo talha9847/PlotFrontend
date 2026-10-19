@@ -410,14 +410,6 @@ export default function Accounts() {
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {filteredAccounts.map((account) => (
               <article
-                onClick={() => {
-                  console.log(account);
-                  navigate("/admin/history", {
-                    state: {
-                      uuid: account.uuid,
-                    },
-                  });
-                }}
                 key={account.uuid || account.id}
                 className="group rounded-2xl border border-[#e3e9e0] bg-white p-5 shadow-sm shadow-[#062a20]/[0.03] transition hover:-translate-y-0.5 hover:border-[#c8d9ce] hover:shadow-md"
               >
@@ -436,40 +428,50 @@ export default function Accounts() {
                     Edit
                   </button>
                 </div>
-
-                <div className="mt-5">
-                  <p className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-[#829087]">
-                    Account name
-                  </p>
-                  <h3
-                    className="mt-1 break-words text-xl font-semibold text-[#14231d]"
-                    style={DISPLAY}
-                  >
-                    {account.account_name}
-                  </h3>
-                </div>
-
-                <div className="mt-5 flex items-center gap-3 rounded-xl border border-[#eef2ec] bg-[#fafbf8] p-3.5">
-                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white text-[#1b7a5a] shadow-sm">
-                    <Building2 size={17} />
-                  </span>
-                  <div className="min-w-0">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-[#829087]">
-                      Bank
+                <div
+                  onClick={() => {
+                    console.log(account);
+                    navigate("/admin/history", {
+                      state: {
+                        uuid: account.uuid,
+                      },
+                    });
+                  }}
+                >
+                  <div className="mt-5">
+                    <p className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-[#829087]">
+                      Account name
                     </p>
-                    <p className="mt-0.5 truncate text-sm font-semibold text-[#263a30]">
-                      {account.bank_name}
-                    </p>
+                    <h3
+                      className="mt-1 break-words text-xl font-semibold text-[#14231d]"
+                      style={DISPLAY}
+                    >
+                      {account.account_name}
+                    </h3>
                   </div>
-                </div>
 
-                <div className="mt-4 flex items-center justify-between border-t border-[#eef2ec] pt-3">
-                  <span className="text-[11px] text-[#829087]">
-                    Account reference
-                  </span>
-                  <span className="font-mono text-xs font-semibold text-[#52665b]">
-                    #{account.id}
-                  </span>
+                  <div className="mt-5 flex items-center gap-3 rounded-xl border border-[#eef2ec] bg-[#fafbf8] p-3.5">
+                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white text-[#1b7a5a] shadow-sm">
+                      <Building2 size={17} />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-[#829087]">
+                        Bank
+                      </p>
+                      <p className="mt-0.5 truncate text-sm font-semibold text-[#263a30]">
+                        {account.bank_name}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex items-center justify-between border-t border-[#eef2ec] pt-3">
+                    <span className="text-[11px] text-[#829087]">
+                      Account reference
+                    </span>
+                    <span className="font-mono text-xs font-semibold text-[#52665b]">
+                      #{account.id}
+                    </span>
+                  </div>
                 </div>
               </article>
             ))}
