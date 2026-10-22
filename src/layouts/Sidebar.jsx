@@ -20,6 +20,7 @@ import {
   Wallet2Icon,
   History,
   User2Icon,
+  TypeIcon,
 } from "lucide-react";
 import Brand from "../components/common/Brand";
 
@@ -42,6 +43,7 @@ const groups = [
       { to: "/admin/bookings", label: "Bookings", icon: ClipboardCheck },
       { to: "/admin/customers", label: "Customers.", icon: Users },
       { to: "/admin/parties", label: "Parties.", icon: User2Icon },
+      { to: "/admin/categories", label: "Parties.", icon: TypeIcon },
       {
         to: "/admin/installments",
         label: "Installments",

@@ -24,6 +24,7 @@ import AccountHistory from "./pages/AccountHistory";
 import BrokerLeads from "../src/broker/Leads";
 import TransactionHistoryDummy from "./pages/TransactionHistory";
 import Parties from "./pages/Parties";
+import Categories from "./pages/Categories";
 
 export default function App() {
   return (
@@ -46,6 +47,7 @@ export default function App() {
             <Route path="bookings" element={<Bookings />} />
             <Route path="customers" element={<Customers />} />
             <Route path="parties" element={<Parties />} />
+            <Route path="categories" element={<Categories />} />
             <Route path="payments" element={<PaymentsPage />} />
             <Route path="accounts" element={<Accounts />} />
             <Route path="history" element={<AccountHistory />} />
