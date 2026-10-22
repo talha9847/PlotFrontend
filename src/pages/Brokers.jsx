@@ -17,6 +17,7 @@ import Input from "../components/common/Input";
 import Button from "../components/common/Button";
 import Modal from "../components/common/Modal";
 import { useToast } from "../components/common/Toast";
+import Loader from "../components/common/Loader";
 
 const DISPLAY = { fontFamily: "'Fraunces', Georgia, serif" };
 const GOLD = "#e4c48a";

@@ -19,6 +19,7 @@ import {
   ClipboardCheck,
   Wallet2Icon,
   History,
+  User2Icon,
 } from "lucide-react";
 import Brand from "../components/common/Brand";
 
@@ -40,6 +41,7 @@ const groups = [
       { to: "/admin/plots", label: "Plot inventory", icon: Grid2X2 },
       { to: "/admin/bookings", label: "Bookings", icon: ClipboardCheck },
       { to: "/admin/customers", label: "Customers.", icon: Users },
+      { to: "/admin/parties", label: "Parties.", icon: User2Icon },
       {
         to: "/admin/installments",
         label: "Installments",
