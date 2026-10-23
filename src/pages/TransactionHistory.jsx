@@ -9,6 +9,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Download,
+  Plus,
   Search,
   SlidersHorizontal,
   X,
@@ -16,10 +17,14 @@ import {
 import SearchableLeadSelect from "../components/common/SearchableLeadSelect";
 import SearchablePlotSelect2 from "../components/common/SearchablePlotSelect2";
 import Select from "../components/common/Select";
+import Input from "../components/common/Input";
+import Button from "../components/common/Button";
+import Modal from "../components/common/Modal";
 import Loader from "../components/common/Loader";
 import { useToast } from "../components/common/Toast";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
+import SearchablePartySelect from "../components/common/SearchablePartySelect";
 
 const DISPLAY = { fontFamily: "'Fraunces', Georgia, serif" };
 const GOLD = "#e4c48a";
@@ -268,6 +273,35 @@ export default function TransactionHistory() {
   const [loadingAccounts, setLoadingAccounts] = useState(false);
   const [loadingProjects, setLoadingProjects] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [addTransactionOpen, setAddTransactionOpen] = useState(false);
+  const [savingTransaction, setSavingTransaction] = useState(false);
+
+  const getParties = async () => {
+    try {
+      const res = await axios.get("/api/parties/dropdown", {
+        withCredentials: true,
+      });
+      if (res.status == 200) {
+        console.log(res.data.data);
+      }
+    } catch (error) {
+      console.log(error);
+    }
+  };
+
+  useEffect(() => {
+    getParties();
+  });
+  const [newTransaction, setNewTransaction] = useState({
+    transaction_type: "income",
+    party_id: "",
+    category_id: "",
+    amount: "",
+    account_id: "",
+    payment_method: "cash",
+    transaction_date: new Date().toISOString().slice(0, 10),
+    notes: "",
+  });
   const [accounts, setAccounts] = useState([]);
   const [projects, setProjects] = useState([]);
   const [total, setTotal] = useState(0);
@@ -280,6 +314,92 @@ export default function TransactionHistory() {
     refundedTotal: 0,
   });
   const toast = useToast();
+
+  // Static options for the initial UI. Replace these IDs/labels with values
+  // returned by your parties, transaction-categories, and accounts APIs.
+  const STATIC_CUSTOMERS = [
+    { value: "1", label: "Walk-in Customer" },
+    { value: "2", label: "Rahul Sharma" },
+    { value: "3", label: "Priya Patel" },
+  ];
+  const STATIC_CATEGORIES = [
+    { value: "1", label: "Sales" },
+    { value: "2", label: "Office expenses" },
+    { value: "3", label: "Other" },
+  ];
+  const STATIC_ACCOUNTS = [
+    { value: "1", label: "Cash" },
+    { value: "2", label: "BOB" },
+    { value: "3", label: "SBI" },
+  ];
+
+  async function handleAddTransaction(event) {
+    event.preventDefault();
+    if (savingTransaction) return;
+
+    const amount = Number(newTransaction.amount);
+    if (
+      !newTransaction.party_id ||
+      !newTransaction.category_id ||
+      !newTransaction.account_id
+    ) {
+      toast("Please select a customer, category, and account.", "error");
+      return;
+    }
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toast("Amount must be greater than zero.", "error");
+      return;
+    }
+
+    try {
+      setSavingTransaction(true);
+      const response = await axios.post(
+        "/api/transactions",
+        {
+          transaction_type: newTransaction.transaction_type,
+          party_id: Number(newTransaction.party_id),
+          category_id: Number(newTransaction.category_id),
+          amount,
+          account_id: Number(newTransaction.account_id),
+          payment_method: newTransaction.payment_method,
+          transaction_date: newTransaction.transaction_date
+            ? new Date(
+                `${newTransaction.transaction_date}T00:00:00`,
+              ).toISOString()
+            : undefined,
+          notes: newTransaction.notes.trim() || undefined,
+        },
+        { withCredentials: true },
+      );
+
+      if (response.status === 200 || response.status === 201) {
+        toast(
+          response.data?.message || "Transaction added successfully.",
+          "success",
+        );
+        setAddTransactionOpen(false);
+        setNewTransaction({
+          transaction_type: "income",
+          party_id: "",
+          category_id: "",
+          amount: "",
+          account_id: "",
+          payment_method: "cash",
+          transaction_date: new Date().toISOString().slice(0, 10),
+          notes: "",
+        });
+        setPage(1);
+        await fetchTransactions();
+      }
+    } catch (error) {
+      toast(
+        error.response?.data?.message || "Failed to add transaction.",
+        "error",
+      );
+    } finally {
+      setSavingTransaction(false);
+    }
+  }
 
   const [filters, setFilters] = useState({
     customer_id: "",
@@ -608,6 +728,13 @@ export default function TransactionHistory() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setAddTransactionOpen(true)}
+            className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-[#0b3d2e] px-4 text-sm font-semibold text-white transition hover:bg-[#145640]"
+          >
+            <Plus size={16} /> Add transaction
+          </button>
           <button
             type="button"
             onClick={() => setShowFilters((value) => !value)}
@@ -1213,6 +1340,193 @@ export default function TransactionHistory() {
           </div>
         </div>
       </section>
+
+      <Modal
+        open={addTransactionOpen}
+        onClose={() => {
+          if (savingTransaction) return;
+          setAddTransactionOpen(false);
+        }}
+        size="lg"
+        title="Add transaction"
+        description="Record an income or expense transaction."
+        footer={
+          <div className="flex w-full flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+            <Button
+              variant="secondary"
+              disabled={savingTransaction}
+              onClick={() => setAddTransactionOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={savingTransaction}
+              onClick={() =>
+                document.getElementById("add-transaction-form")?.requestSubmit()
+              }
+            >
+              {savingTransaction ? (
+                <Loader
+                  size="xs"
+                  variant="spinner"
+                  color="#ffffff"
+                  label="Saving..."
+                />
+              ) : (
+                <Plus size={16} className="mr-2" />
+              )}
+              {savingTransaction ? "Saving transaction..." : "Save transaction"}
+            </Button>
+          </div>
+        }
+      >
+        <form
+          id="add-transaction-form"
+          onSubmit={handleAddTransaction}
+          className="space-y-5"
+        >
+          <div className="rounded-xl bg-[#e9f6ef] p-4 text-[#0b3d2e]">
+            <p className="text-xs font-semibold uppercase tracking-wider">
+              New transaction
+            </p>
+            <p className="mt-1 text-sm text-[#426b56]">
+              Select the party, category and account, then enter the amount.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <SearchablePartySelect
+              apiUrl="/api/parties"
+              name="party_id"
+              label="Customer"
+              // value={formData.party_id}
+              onChange={(e) =>
+                setFormData((prev) => ({
+                  ...prev,
+                  party_id: e.target.value,
+                }))
+              }
+            />
+            <Select
+              label="Transaction type"
+              name="transaction_type"
+              value={newTransaction.transaction_type}
+              onChange={(event) =>
+                setNewTransaction((current) => ({
+                  ...current,
+                  transaction_type: event.target.value,
+                }))
+              }
+              options={[
+                { value: "income", label: "Income" },
+                { value: "expense", label: "Expense" },
+              ]}
+              required
+              disabled={savingTransaction}
+            />
+            <Select
+              label="Category"
+              name="category_id"
+              value={newTransaction.category_id}
+              onChange={(event) =>
+                setNewTransaction((current) => ({
+                  ...current,
+                  category_id: event.target.value,
+                }))
+              }
+              placeholder="Select category"
+              options={STATIC_CATEGORIES}
+              required
+              disabled={savingTransaction}
+            />
+            <Input
+              label="Amount (₹)"
+              name="amount"
+              type="number"
+              min="0.01"
+              step="0.01"
+              value={newTransaction.amount}
+              onChange={(event) =>
+                setNewTransaction((current) => ({
+                  ...current,
+                  amount: event.target.value,
+                }))
+              }
+              placeholder="Enter amount"
+              required
+              disabled={savingTransaction}
+            />
+            <Select
+              label="Account"
+              name="account_id"
+              value={newTransaction.account_id}
+              onChange={(event) =>
+                setNewTransaction((current) => ({
+                  ...current,
+                  account_id: event.target.value,
+                }))
+              }
+              placeholder="Select account"
+              options={STATIC_ACCOUNTS}
+              required
+              disabled={savingTransaction}
+            />
+            <Select
+              label="Payment method"
+              name="payment_method"
+              value={newTransaction.payment_method}
+              onChange={(event) =>
+                setNewTransaction((current) => ({
+                  ...current,
+                  payment_method: event.target.value,
+                }))
+              }
+              options={METHODS.map(([value, label]) => ({ value, label }))}
+              required
+              disabled={savingTransaction}
+            />
+            <Input
+              wrapperClassName="sm:col-span-2"
+              label="Transaction date"
+              name="transaction_date"
+              type="date"
+              value={newTransaction.transaction_date}
+              onChange={(event) =>
+                setNewTransaction((current) => ({
+                  ...current,
+                  transaction_date: event.target.value,
+                }))
+              }
+              disabled={savingTransaction}
+            />
+          </div>
+
+          <div>
+            <label
+              htmlFor="transaction-notes"
+              className="mb-2 block text-sm font-semibold text-[#14231d]"
+            >
+              Notes{" "}
+              <span className="font-normal text-[#89958d]">(optional)</span>
+            </label>
+            <textarea
+              id="transaction-notes"
+              name="notes"
+              value={newTransaction.notes}
+              onChange={(event) =>
+                setNewTransaction((current) => ({
+                  ...current,
+                  notes: event.target.value,
+                }))
+              }
+              rows={3}
+              disabled={savingTransaction}
+              placeholder="Add a note about this transaction..."
+              className="w-full resize-y rounded-xl border border-[#dfe5dc] bg-white px-3.5 py-3 text-sm text-[#14231d] outline-none transition placeholder:text-[#9aa59d] focus:border-[#1b7a5a] focus:ring-4 focus:ring-[#1b7a5a]/10 disabled:bg-slate-50"
+            />
+          </div>
+        </form>
+      </Modal>
 
       {detail && (
         <div
