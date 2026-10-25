@@ -2,8 +2,6 @@ import { useEffect, useState } from "react";
 import {
   CalendarClock,
   CheckCircle2,
-  Clock3,
-  IndianRupee,
   Search,
   ChevronLeft,
   ChevronRight,
@@ -20,7 +18,6 @@ import Input from "../components/common/Input";
 import Badge from "../components/common/Badge";
 import Card from "../components/common/Card";
 import Button from "../components/common/Button";
-import Loader from "../components/common/Loader";
 import { useToast } from "../components/common/Toast";
 import { useNavigate } from "react-router-dom";
 
@@ -47,23 +44,19 @@ const formatDate = (value) => {
 };
 
 const STATUSES = [
+  "upcoming",
+  "overdue",
   "All",
   "pending",
   "partially_paid",
-  "overdue",
-  "paid",
-  "waived",
-  "cancelled",
 ];
 
 const STATUS_LABELS = {
-  All: "All",
+  upcoming: "Upcoming",
+  All: "All open",
   pending: "Pending",
   partially_paid: "Partially paid",
   overdue: "Overdue",
-  paid: "Paid",
-  waived: "Waived",
-  cancelled: "Cancelled",
 };
 
 function StatCard({ icon: Icon, label, value, note, dark = false }) {
@@ -111,9 +104,6 @@ function InstallmentStatus({ status }) {
     pending: "bg-amber-50 text-amber-700 ring-amber-600/20",
     partially_paid: "bg-orange-50 text-orange-700 ring-orange-600/20",
     overdue: "bg-red-50 text-red-700 ring-red-600/20",
-    paid: "bg-emerald-50 text-emerald-700 ring-emerald-600/20",
-    waived: "bg-blue-50 text-blue-700 ring-blue-600/20",
-    cancelled: "bg-gray-100 text-gray-600 ring-gray-500/20",
   };
 
   return (
@@ -174,7 +164,7 @@ export default function Installments() {
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [filter, setFilter] = useState("All");
+  const [filter, setFilter] = useState("upcoming");
   const [sortBy, setSortBy] = useState("due_date");
   const [sortOrder, setSortOrder] = useState("asc");
   const [limit, setLimit] = useState(10);
@@ -183,13 +173,12 @@ export default function Installments() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    const timer = setTimeout(() => setDebouncedSearch(search.trim()), 350);
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search.trim());
+      setPagination((current) => ({ ...current, page: 1 }));
+    }, 350);
     return () => clearTimeout(timer);
   }, [search]);
-
-  useEffect(() => {
-    setPagination((current) => ({ ...current, page: 1 }));
-  }, [debouncedSearch, filter, sortBy, sortOrder, limit]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -250,6 +239,7 @@ export default function Installments() {
     sortBy,
     sortOrder,
     refreshKey,
+    toast,
   ]);
 
   function handleSort(column) {
@@ -259,12 +249,24 @@ export default function Installments() {
       setSortBy(column);
       setSortOrder("asc");
     }
+
+    setPagination((current) => ({ ...current, page: 1 }));
+  }
+
+  function changeFilter(status) {
+    setFilter(status);
+    setPagination((current) => ({ ...current, page: 1 }));
+  }
+
+  function changeLimit(event) {
+    setLimit(Number(event.target.value));
+    setPagination((current) => ({ ...current, page: 1 }));
   }
 
   function clearFilters() {
     setSearch("");
     setDebouncedSearch("");
-    setFilter("All");
+    setFilter("upcoming");
     setSortBy("due_date");
     setSortOrder("asc");
     setPagination((current) => ({ ...current, page: 1 }));
@@ -288,8 +290,8 @@ export default function Installments() {
             Installments<span style={{ color: GOLD }}>.</span>
           </h1>
           <p className="mt-2 text-sm text-[#5b6b63]">
-            Track due dates, collections and outstanding installments across all
-            customers.
+            Track the next upcoming installment for each plan, plus overdue
+            balances across all customers.
           </p>
         </div>
         <Button
@@ -305,27 +307,27 @@ export default function Installments() {
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           icon={CalendarClock}
-          label="Total installments"
-          value={stats.total_installments.toLocaleString("en-IN")}
-          note="Matching all records"
+          label="Upcoming installments"
+          value={stats.upcoming_count.toLocaleString("en-IN")}
+          note={`Next per plan · ${stats.total_installments} open`}
         />
         <StatCard
           icon={CheckCircle2}
-          label="Amount collected"
+          label="Collected"
           value={formatINR(stats.paid_amount)}
-          note="Payments recorded against installments"
+          note="Paid toward open installments"
         />
         <StatCard
           icon={Wallet}
           label="Outstanding amount"
           value={formatINR(stats.outstanding_amount)}
-          note="Remaining installment amounts"
+          note="Remaining on open installments"
         />
         <StatCard
           icon={AlertTriangle}
           label="Overdue installments"
           value={stats.overdue_count.toLocaleString("en-IN")}
-          note={`${stats.upcoming_count} upcoming or pending`}
+          note="Past due balances"
         />
       </div>
 
@@ -350,7 +352,7 @@ export default function Installments() {
               <select
                 id="installment-page-size"
                 value={limit}
-                onChange={(event) => setLimit(Number(event.target.value))}
+                onChange={changeLimit}
                 className="rounded-lg border border-[#dfe5dc] bg-white px-3 py-2 text-sm text-[#14231d] outline-none focus:border-[#1b7a5a]"
               >
                 {[10, 20, 50, 100].map((size) => (
@@ -371,8 +373,13 @@ export default function Installments() {
               <button
                 key={status}
                 type="button"
-                onClick={() => setFilter(status)}
+                onClick={() => changeFilter(status)}
                 aria-pressed={filter === status}
+                title={
+                  status === "upcoming"
+                    ? "Next upcoming installment for each plan"
+                    : undefined
+                }
                 className={`rounded-full border px-4 py-2 text-xs font-bold transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#1b7a5a]/20 ${
                   filter === status
                     ? "border-[#0b3d2e] bg-[#0b3d2e] text-white shadow-md shadow-[#0b3d2e]/20"
@@ -476,7 +483,9 @@ export default function Installments() {
                       <Search size={20} />
                     </span>
                     <p className="mt-4 text-sm font-bold text-[#14231d]">
-                      No installments found
+                      {filter === "All"
+                        ? "No open installments"
+                        : `No ${STATUS_LABELS[filter].toLowerCase()} installments`}
                     </p>
                     <p className="mt-1 text-xs text-[#5b6b63]">
                       Try another search or clear your filters.
@@ -494,7 +503,7 @@ export default function Installments() {
                 installments.map((item) => {
                   const due = Number(item.amount_due) || 0;
                   const paid = Number(item.amount_paid) || 0;
-                  const remaining = Math.max(0, due - paid);
+                  const remaining = Math.max(0, Number(item.remaining) || 0);
                   return (
                     <tr
                       key={item.uuid || item.id}

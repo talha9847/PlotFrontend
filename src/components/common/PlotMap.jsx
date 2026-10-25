@@ -33,11 +33,13 @@ const legends = Object.entries(statusStyles).map(([label, s]) => ({
   dot: s.dot,
 }));
 
-function formatArea(area) {
+function formatArea(area, dimension) {
+  const suffix = dimension === "mt" ? "m²" : "ft²";
+
   if (area == null || area === "") return "Area N/A";
   if (typeof area === "number")
     return Number.isFinite(area)
-      ? `${area.toLocaleString("en-IN")} ft²`
+      ? `${area.toLocaleString("en-IN")} ${suffix}`
       : "Area N/A";
   const value = String(area).trim();
   const numericPart = value
@@ -46,7 +48,7 @@ function formatArea(area) {
     .trim();
   const n = Number(numericPart);
   if (numericPart && Number.isFinite(n))
-    return `${n.toLocaleString("en-IN")} ft²`;
+    return `${n.toLocaleString("en-IN")} ${suffix}`;
   return value || "Area N/A";
 }
 
@@ -166,8 +168,8 @@ export default function PlotMap({
                 <button
                   type="button"
                   onClick={() => onSelect?.(plot)}
-                  title={`${plotNumber} · ${status.label} · ${formatArea(plot.area)}${plot.leadName ? ` · Lead: ${plot.leadName}` : ""}`}
-                  aria-label={`Plot ${plotNumber}, ${status.label}, ${formatArea(plot.area)}${plot.leadName ? `, Lead: ${plot.leadName}` : ""}`}
+                  title={`${plotNumber} · ${status.label} · ${formatArea(plot.area, plot.dimension)}${plot.leadName ? ` · Lead: ${plot.leadName}` : ""}`}
+                  aria-label={`Plot ${plotNumber}, ${status.label}, ${formatArea(plot.area, plot.dimension)}${plot.leadName ? `, Lead: ${plot.leadName}` : ""}`}
                   aria-pressed={isSelected}
                   className={`group relative flex min-h-[125px] min-w-0 flex-col items-start justify-between overflow-hidden rounded-xl border p-3 text-left shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-lg focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#1b7a5a]/25 sm:min-h-[140px] sm:p-3.5 ${status.card} ${dim ? "opacity-30 saturate-50" : ""} ${isSelected ? "ring-4 ring-[#e4c48a]" : ""}`}
                 >
@@ -185,7 +187,7 @@ export default function PlotMap({
 
                   <div className="mt-3 w-full space-y-2">
                     <p className="truncate text-xs font-semibold">
-                      {formatArea(plot.area)}
+                      {formatArea(plot.area, plot.dimension)}
                     </p>
 
                     <div className="flex items-center gap-1.5">

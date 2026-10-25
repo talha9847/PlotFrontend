@@ -2,9 +2,7 @@ import { useEffect, useState } from "react";
 import {
   CalendarDays,
   CheckCircle2,
-  CheckCircle,
   Clock3,
-  IndianRupee,
   MapPin,
   Search,
   UserRound,
@@ -19,15 +17,12 @@ import axios from "axios";
 
 import Input from "../components/common/Input";
 import Select from "../components/common/Select";
+import PaymentAccountFields from "../components/common/PaymentAccountFields";
 import Button from "../components/common/Button";
 import Badge from "../components/common/Badge";
 import Modal from "../components/common/Modal";
 import Loader from "../components/common/Loader";
 import { useToast } from "../components/common/Toast";
-import {
-  confirmSweetAlert,
-  successSweetAlert,
-} from "../components/common/SweetAlert";
 
 const DISPLAY = { fontFamily: "'Fraunces', Georgia, serif" };
 const GOLD = "#e4c48a";
@@ -88,6 +83,32 @@ const formatINR = (value) =>
     currency: "INR",
     maximumFractionDigits: 0,
   }).format(Number(value) || 0);
+
+const getInstallmentPreview = (balance, count) => {
+  const total = Number(balance);
+  const installments = Number(count);
+
+  if (
+    !Number.isSafeInteger(total) ||
+    total < 0 ||
+    !Number.isSafeInteger(installments) ||
+    installments <= 0 ||
+    total < installments
+  ) {
+    return null;
+  }
+
+  const base = Math.floor(total / installments);
+  const remainder = total - base * installments;
+
+  return {
+    total,
+    count: installments,
+    base,
+    upper: base + (remainder > 0 ? 1 : 0),
+    remainder,
+  };
+};
 
 const formatDate = (value) => {
   if (!value) return "—";
@@ -175,8 +196,6 @@ export default function Bookings() {
     "quarterly",
     "half_yearly",
     "yearly",
-    "milestone",
-    "custom",
   ];
   const PLAN_STATUSES = ["active", "completed", "cancelled"];
 
@@ -226,7 +245,29 @@ export default function Bookings() {
         }
 
         if (amount > totalAmount) {
-          return "Down payment cannot exceed the remainig amount.";
+          return "Down payment cannot exceed the remaining amount.";
+        }
+
+        const remainingBalance =
+          Math.round(
+            (totalAmount -
+              Number(form.booking_amount || 0) -
+              Number(value)) *
+              100,
+          ) / 100;
+
+        if (!Number.isInteger(remainingBalance)) {
+          return "Down payment must leave a whole-rupee remaining balance.";
+        }
+
+        const installmentCount = Number(form.installment_count);
+
+        if (
+          Number.isInteger(installmentCount) &&
+          installmentCount > 0 &&
+          remainingBalance < installmentCount
+        ) {
+          return "Remaining balance must be at least the number of installments.";
         }
 
         return "";
@@ -239,6 +280,22 @@ export default function Bookings() {
 
         if (!Number.isInteger(count) || count <= 0) {
           return "Enter a positive whole number.";
+        }
+
+        const remainingBalance =
+          Math.round(
+            (totalAmount -
+              Number(form.booking_amount || 0) -
+              Number(form.down_payment || 0)) *
+              100,
+          ) / 100;
+
+        if (
+          Number.isInteger(remainingBalance) &&
+          remainingBalance >= 0 &&
+          count > remainingBalance
+        ) {
+          return "Number of installments cannot exceed the remaining balance.";
         }
 
         return "";
@@ -254,10 +311,6 @@ export default function Bookings() {
           : "Select a valid plan frequency.";
 
       case "start_date":
-        if (!value) return "Payment date is required.";
-        return isValidDate(value) ? "" : "Enter a valid payment date.";
-
-      case "start_date":
         if (!value) return "Installment start date is required.";
         if (!isValidDate(value)) return "Enter a valid start date.";
 
@@ -271,6 +324,28 @@ export default function Bookings() {
         return String(value ?? "").length > 2000
           ? "Notes cannot exceed 2,000 characters."
           : "";
+
+      case "payment_method":
+        return value ? "" : "Select a payment method.";
+
+      case "payment_date":
+        if (!value) return "Payment date is required.";
+        return isValidDate(value) ? "" : "Enter a valid payment date.";
+
+      case "account_id": {
+        const downPayment = Number(form.down_payment || 0);
+
+        if (
+          downPayment > 0 &&
+          form.payment_method &&
+          form.payment_method !== "cash" &&
+          !value
+        ) {
+          return "Select the bank account receiving this payment.";
+        }
+
+        return "";
+      }
 
       default:
         return "";
@@ -317,19 +392,48 @@ export default function Bookings() {
     lead_id: "",
     booking_amount: 0,
     total_amount: 0,
+    payment_method: "cash",
+    account_id: "",
+    payment_date: new Date().toISOString().slice(0, 10),
+    reference_number: "",
   });
   const [savingConfirmation, setSavingConfirmation] = useState(false);
 
+  const [accounts, setAccounts] = useState([]);
+  const [loadingAccounts, setLoadingAccounts] = useState(false);
+
+  const [cancelModalOpen, setCancelModalOpen] = useState(false);
+  const [cancellingBooking, setCancellingBooking] = useState(null);
+  const [cancelForm, setCancelForm] = useState({
+    reason: "",
+    refund_token: false,
+    refund_method: "cash",
+    refund_account_id: "",
+    refund_date: new Date().toISOString().slice(0, 10),
+    reference_number: "",
+  });
+  const [cancelErrors, setCancelErrors] = useState({});
+  const [savingCancellation, setSavingCancellation] = useState(false);
+
   const openConfirmModal = (booking) => {
-    console.log(booking);
     setConfirmingBooking(booking);
 
     setConfirmForm({
-      ...confirmForm,
+      down_payment: "",
+      installment_count: "24",
+      frequency: "monthly",
+      start_date: "",
+      status: "active",
+      notes: "",
       lead_id: booking.lead_id,
       booking_amount: booking.booking_amount,
       total_amount: booking.total_amount,
+      payment_method: "cash",
+      account_id: "",
+      payment_date: new Date().toISOString().slice(0, 10),
+      reference_number: "",
     });
+    setConfirmErrors({});
 
     setConfirmModalOpen(true);
   };
@@ -354,6 +458,9 @@ export default function Bookings() {
       "start_date",
       "status",
       "notes",
+      "payment_method",
+      "payment_date",
+      "account_id",
     ];
 
     const errors = {};
@@ -365,7 +472,7 @@ export default function Bookings() {
     });
 
     setConfirmErrors(errors);
-    console.log(errors);
+
     if (Object.keys(errors).length > 0) {
       toast("Please fix the validation errors.", "error");
       return;
@@ -382,6 +489,14 @@ export default function Bookings() {
           start_date: confirmForm.start_date,
           status: confirmForm.status,
           notes: confirmForm.notes,
+          payment_method: confirmForm.payment_method,
+          account_id:
+            confirmForm.payment_method === "cash" ||
+            !confirmForm.account_id
+              ? null
+              : Number(confirmForm.account_id),
+          payment_date: confirmForm.payment_date || null,
+          reference_number: confirmForm.reference_number?.trim() || null,
         },
         {
           withCredentials: true,
@@ -397,7 +512,7 @@ export default function Bookings() {
         setConfirmingBooking(null);
         setConfirmErrors({});
 
-        // Reset the confirmation form if you have a shared initial state.
+        // Reset the confirmation form for the next booking.
         setConfirmForm({
           down_payment: "",
           installment_count: "24",
@@ -406,6 +521,12 @@ export default function Bookings() {
           status: "active",
           notes: "",
           lead_id: "",
+          booking_amount: 0,
+          total_amount: 0,
+          payment_method: "cash",
+          account_id: "",
+          payment_date: new Date().toISOString().slice(0, 10),
+          reference_number: "",
         });
         // Refresh the bookings list.
       }
@@ -422,25 +543,105 @@ export default function Bookings() {
     }
   };
 
-  const handleCancelBooking = async (booking) => {
-    const result = await confirmSweetAlert({
-      title: "Cancel booking?",
-      text: `Are you sure you want to cancel booking ${booking.booking_number} for ${booking.customer_name}?`,
-      icon: "warning",
-      confirmButtonText: "Yes, cancel booking",
-      cancelButtonText: "Keep booking",
-      confirmButtonClass: "app-swal-deny",
+  const openCancelModal = (booking) => {
+    setCancellingBooking(booking);
+    setCancelForm({
+      reason: "",
+      refund_token: Number(booking.booking_amount) > 0,
+      refund_method: "cash",
+      refund_account_id: "",
+      refund_date: new Date().toISOString().slice(0, 10),
+      reference_number: "",
     });
+    setCancelErrors({});
+    setCancelModalOpen(true);
+  };
 
-    if (!result.isConfirmed) return;
+  const closeCancelModal = () => {
+    if (savingCancellation) return;
 
-    // TODO: Call your cancellation API here.
-    // Update the booking status to "cancelled" on the backend.
+    setCancelModalOpen(false);
+    setCancellingBooking(null);
+  };
 
-    await successSweetAlert({
-      title: "Confirmation required",
-      text: "Connect the cancellation API before updating the booking.",
-    });
+  const handleCancelFieldChange = (field, value) => {
+    setCancelForm((current) => ({ ...current, [field]: value }));
+    setCancelErrors((current) => ({ ...current, [field]: "" }));
+  };
+
+  const handleCancelBooking = async (event) => {
+    event.preventDefault();
+
+    if (!cancellingBooking || savingCancellation) return;
+
+    const errors = {};
+
+    if (!cancelForm.reason.trim()) {
+      errors.reason = "Enter a reason for cancelling this booking.";
+    }
+
+    if (cancelForm.refund_token) {
+      if (!cancelForm.refund_date) {
+        errors.refund_date = "Select the refund date.";
+      }
+
+      if (
+        cancelForm.refund_method !== "cash" &&
+        !cancelForm.refund_account_id
+      ) {
+        errors.refund_account_id = "Select the bank account for this refund.";
+      }
+    }
+
+    setCancelErrors(errors);
+
+    if (Object.keys(errors).length > 0) {
+      toast("Please fix the validation errors.", "error");
+      return;
+    }
+
+    try {
+      setSavingCancellation(true);
+
+      const res = await axios.post(
+        `/api/bookings/${cancellingBooking.uuid}/cancel`,
+        {
+          reason: cancelForm.reason.trim(),
+          refund_token: cancelForm.refund_token,
+          refund_method: cancelForm.refund_token
+            ? cancelForm.refund_method
+            : null,
+          refund_account_id:
+            cancelForm.refund_token &&
+            cancelForm.refund_method !== "cash" &&
+            cancelForm.refund_account_id
+              ? Number(cancelForm.refund_account_id)
+              : null,
+          refund_date: cancelForm.refund_date || null,
+          reference_number: cancelForm.reference_number.trim() || null,
+        },
+        {
+          withCredentials: true,
+          headers: { "Idempotency-Key": crypto.randomUUID() },
+        },
+      );
+
+      await fetchBookings();
+      toast(res.data?.message || "Booking cancelled successfully.", "success");
+      setCancelModalOpen(false);
+      setCancellingBooking(null);
+      setCancelErrors({});
+    } catch (error) {
+      console.error("Cancel booking error:", error);
+
+      toast(
+        error.response?.data?.message ||
+          "Failed to cancel booking. Please try again.",
+        "error",
+      );
+    } finally {
+      setSavingCancellation(false);
+    }
   };
 
   // Use the active tab as the status unless the user selects a status filter.
@@ -507,7 +708,42 @@ export default function Bookings() {
     );
 
     return () => window.clearTimeout(timeoutId);
+    // fetchBookings is intentionally excluded; these query inputs define the request.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, limit, query, sort, requestStatus]);
+
+  // Accounts are needed for down-payment and cancellation refund receipts.
+  useEffect(() => {
+    let cancelled = false;
+
+    const fetchAccounts = async () => {
+      setLoadingAccounts(true);
+
+      try {
+        const response = await axios.get("/api/accounts", {
+          withCredentials: true,
+        });
+
+        if (!cancelled) {
+          setAccounts(response.data?.data?.accounts || []);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.error("Failed to fetch accounts:", error);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingAccounts(false);
+        }
+      }
+    };
+
+    fetchAccounts();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const changeTab = (tab) => {
     setActiveTab(tab);
@@ -526,19 +762,20 @@ export default function Bookings() {
     setPage(1);
   };
 
-  const openDetails = (booking) => {
-    setSelectedBooking(booking);
-    setDetailsOpen(true);
-  };
-
   const closeDetails = () => {
     setDetailsOpen(false);
     setSelectedBooking(null);
   };
 
-  const totalValue = bookings.reduce(
-    (sum, booking) => sum + Number(booking.total_amount || 0),
+  const confirmRemainingBalance = Math.max(
     0,
+    Number(confirmForm.total_amount || 0) -
+      Number(confirmForm.booking_amount || 0) -
+      Number(confirmForm.down_payment || 0),
+  );
+  const installmentPreview = getInstallmentPreview(
+    confirmRemainingBalance,
+    confirmForm.installment_count,
   );
 
   return (
@@ -818,7 +1055,7 @@ export default function Bookings() {
                             <Button
                               size="sm"
                               variant="danger"
-                              onClick={() => handleCancelBooking(booking)}
+                              onClick={() => openCancelModal(booking)}
                             >
                               <XCircle size={14} />
                               Cancel
@@ -1142,6 +1379,64 @@ export default function Bookings() {
             </section>
 
             {/* Initial payment */}
+            <section className="space-y-4 rounded-2xl border border-[#e1e8e2] bg-[#fafbf9] p-4 sm:p-5">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Wallet size={18} className="text-[#1b7a5a]" />
+                  <h3 className="text-base font-semibold text-[#14231d]">
+                    Down payment receipt
+                  </h3>
+                </div>
+
+                <p className="mt-1 text-sm text-[#718078]">
+                  Record how the down payment is received. Cash posts to the
+                  Cash in Hand account automatically.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <PaymentAccountFields
+                  paymentMethod={confirmForm.payment_method}
+                  accountId={confirmForm.account_id}
+                  accounts={accounts}
+                  loadingAccounts={loadingAccounts}
+                  paymentMethodError={confirmErrors.payment_method}
+                  accountError={confirmErrors.account_id}
+                  onMethodChange={(value) =>
+                    handleConfirmFieldChange("payment_method", value)
+                  }
+                  onAccountChange={(value) =>
+                    handleConfirmFieldChange("account_id", value)
+                  }
+                  accountLabelText="Receiving bank account"
+                />
+
+                <Input
+                  label="Payment date"
+                  name="payment_date"
+                  type="date"
+                  value={confirmForm.payment_date}
+                  onChange={(event) =>
+                    handleConfirmFieldChange("payment_date", event.target.value)
+                  }
+                  error={confirmErrors.payment_date}
+                  required
+                />
+
+                <Input
+                  label="Reference number (optional)"
+                  name="reference_number"
+                  value={confirmForm.reference_number}
+                  onChange={(event) =>
+                    handleConfirmFieldChange(
+                      "reference_number",
+                      event.target.value,
+                    )
+                  }
+                  placeholder="UPI / cheque / transfer reference"
+                />
+              </div>
+            </section>
 
             {/* Installment plan */}
             <section className="space-y-4 rounded-2xl border border-[#e1e8e2] bg-[#fafbf9] p-4 sm:p-5">
@@ -1215,8 +1510,6 @@ export default function Bookings() {
                     { value: "quarterly", label: "Quarterly" },
                     { value: "half_yearly", label: "Half-yearly" },
                     { value: "yearly", label: "Yearly" },
-                    { value: "milestone", label: "Milestone-based" },
-                    { value: "custom", label: "Custom" },
                   ]}
                   required
                 />
@@ -1302,42 +1595,34 @@ export default function Bookings() {
                 </div>
 
                 <div className="text-right">
-                  <span className="block text-base font-bold tabular-nums text-[#14231d]">
-                    {formatINR(
-                      Math.max(
-                        0,
-                        Math.max(0, Number(confirmForm.total_amount || 0)) -
-                          Math.max(0, Number(confirmForm.booking_amount || 0)) -
-                          Math.max(0, confirmForm.down_payment),
-                      ) / confirmForm.installment_count,
-                    )}
-                  </span>
+                  {installmentPreview ? (
+                    <>
+                      <span className="block text-base font-bold tabular-nums text-[#14231d]">
+                        {installmentPreview.remainder > 0
+                          ? `${formatINR(installmentPreview.base)}–${formatINR(
+                              installmentPreview.upper,
+                            )}`
+                          : formatINR(installmentPreview.base)}
+                      </span>
 
-                  <span className="mt-1 block text-xs font-medium text-[#89958d]">
-                    {formatINR(
-                      Math.max(
-                        0,
-                        Number(confirmForm.total_amount || 0) -
-                          Number(confirmForm.booking_amount || 0) -
-                          Number(confirmForm.down_payment || 0),
-                      ) /
-                        Math.max(1, Number(confirmForm.installment_count || 1)),
-                    )}
-                    {` * ${confirmForm.installment_count} = `}
-                    {formatINR(
-                      (Math.max(
-                        0,
-                        Number(confirmForm.total_amount || 0) -
-                          Number(confirmForm.booking_amount || 0) -
-                          Number(confirmForm.down_payment || 0),
-                      ) /
-                        Math.max(
-                          1,
-                          Number(confirmForm.installment_count || 1),
-                        )) *
-                        Number(confirmForm.installment_count || 1),
-                    )}
-                  </span>
+                      <span className="mt-1 block text-xs font-medium text-[#89958d]">
+                        {installmentPreview.remainder > 0
+                          ? `${installmentPreview.count} installments · total ${formatINR(
+                              installmentPreview.total,
+                            )}`
+                          : `${formatINR(
+                              installmentPreview.base,
+                            )} × ${installmentPreview.count} = ${formatINR(
+                              installmentPreview.total,
+                            )}`}
+                      </span>
+                    </>
+                  ) : (
+                    <span className="block text-xs font-medium text-[#89958d]">
+                      Enter a whole-rupee balance with at least one rupee per
+                      installment.
+                    </span>
+                  )}
                 </div>
               </div>
             </section>
@@ -1364,6 +1649,176 @@ export default function Bookings() {
                 className="w-full resize-y rounded-xl border border-[#dfe5dc] bg-white px-3.5 py-3 text-sm text-[#14231d] outline-none transition placeholder:text-[#9aa59d] focus:border-[#1b7a5a] focus:ring-4 focus:ring-[#1b7a5a]/10"
               />
             </section>
+          </form>
+        )}
+      </Modal>
+
+      <Modal
+        open={cancelModalOpen}
+        onClose={closeCancelModal}
+        size="lg"
+        title="Cancel booking"
+        description="Cancelling releases the plot. Optionally refund the remaining booking token."
+        footer={
+          <div className="flex w-full flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+            <Button
+              variant="secondary"
+              onClick={closeCancelModal}
+              disabled={savingCancellation}
+            >
+              Keep booking
+            </Button>
+
+            <Button
+              variant="danger"
+              onClick={handleCancelBooking}
+              disabled={savingCancellation}
+            >
+              <XCircle size={16} className="mr-2" />
+              {savingCancellation ? "Cancelling..." : "Cancel booking"}
+            </Button>
+          </div>
+        }
+      >
+        {cancellingBooking && (
+          <form
+            id="cancel-booking-form"
+            onSubmit={handleCancelBooking}
+            className="space-y-6"
+          >
+            <section className="rounded-2xl border border-[#e1e8e2] bg-[#f7f9f6] p-4">
+              <p className="text-xs font-medium uppercase tracking-wider text-[#718078]">
+                Booking
+              </p>
+              <p className="mt-1 text-base font-bold text-[#14231d]">
+                {cancellingBooking.booking_number}
+              </p>
+              <p className="mt-1 text-sm text-[#5b6b63]">
+                {cancellingBooking.customer_name} ·{" "}
+                {cancellingBooking.project_name} · Plot{" "}
+                {cancellingBooking.plot_number}
+              </p>
+              <p className="mt-2 text-sm font-medium text-[#263a30]">
+                Booking token: {formatINR(cancellingBooking.booking_amount)}
+              </p>
+            </section>
+
+            <section>
+              <label
+                htmlFor="cancellation-reason"
+                className="mb-1.5 block text-sm font-semibold text-[#263a30]"
+              >
+                Cancellation reason
+              </label>
+
+              <textarea
+                id="cancellation-reason"
+                name="reason"
+                rows={3}
+                value={cancelForm.reason}
+                onChange={(event) =>
+                  handleCancelFieldChange("reason", event.target.value)
+                }
+                placeholder="Why is this booking being cancelled?"
+                className="w-full resize-y rounded-xl border border-[#dfe5dc] bg-white px-3.5 py-3 text-sm text-[#14231d] outline-none transition placeholder:text-[#9aa59d] focus:border-[#1b7a5a] focus:ring-4 focus:ring-[#1b7a5a]/10"
+                required
+              />
+
+              {cancelErrors.reason && (
+                <p className="mt-1.5 text-xs font-medium text-red-600">
+                  {cancelErrors.reason}
+                </p>
+              )}
+            </section>
+
+            {Number(cancellingBooking.booking_amount) > 0 ? (
+              <section className="space-y-4 rounded-2xl border border-[#e1e8e2] bg-[#fafbf9] p-4 sm:p-5">
+                <label className="flex items-start gap-3">
+                  <input
+                    type="checkbox"
+                    checked={cancelForm.refund_token}
+                    onChange={(event) =>
+                      handleCancelFieldChange(
+                        "refund_token",
+                        event.target.checked,
+                      )
+                    }
+                    className="mt-0.5 h-4 w-4 rounded border-[#c9d4cb] text-[#1b7a5a] focus:ring-[#1b7a5a]"
+                  />
+
+                  <span>
+                    <span className="block text-sm font-semibold text-[#263a30]">
+                      Refund the booking token
+                    </span>
+                    <span className="mt-0.5 block text-xs text-[#718078]">
+                      {formatINR(cancellingBooking.booking_amount)} was
+                      collected as the booking token. The full refundable
+                      balance will be refunded.
+                    </span>
+                  </span>
+                </label>
+
+                {!cancelForm.refund_token && (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-800">
+                    The token will not be refunded. It will remain recorded as
+                    income from this booking.
+                  </div>
+                )}
+
+                {cancelForm.refund_token && (
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <PaymentAccountFields
+                      paymentMethod={cancelForm.refund_method}
+                      accountId={cancelForm.refund_account_id}
+                      accounts={accounts}
+                      loadingAccounts={loadingAccounts}
+                      accountError={cancelErrors.refund_account_id}
+                      methodLabel="Refund method"
+                      accountLabelText="Refund from bank account"
+                      cashHint="Cash refunds are paid out of the Cash in Hand account."
+                      onMethodChange={(value) =>
+                        handleCancelFieldChange("refund_method", value)
+                      }
+                      onAccountChange={(value) =>
+                        handleCancelFieldChange("refund_account_id", value)
+                      }
+                    />
+
+                    <Input
+                      label="Refund date"
+                      name="refund_date"
+                      type="date"
+                      value={cancelForm.refund_date}
+                      onChange={(event) =>
+                        handleCancelFieldChange(
+                          "refund_date",
+                          event.target.value,
+                        )
+                      }
+                      error={cancelErrors.refund_date}
+                      required
+                    />
+
+                    <Input
+                      label="Reference number (optional)"
+                      name="reference_number"
+                      value={cancelForm.reference_number}
+                      onChange={(event) =>
+                        handleCancelFieldChange(
+                          "reference_number",
+                          event.target.value,
+                        )
+                      }
+                      placeholder="UPI / cheque / transfer reference"
+                    />
+                  </div>
+                )}
+              </section>
+            ) : (
+              <div className="rounded-xl border border-[#e1e8e2] bg-[#f7f9f6] p-4 text-sm text-[#5b6b63]">
+                No booking token was collected, so there is nothing to refund.
+              </div>
+            )}
           </form>
         )}
       </Modal>
