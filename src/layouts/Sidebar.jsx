@@ -248,7 +248,7 @@ export default function Sidebar({
         </nav>
 
         {/* WhatsApp reminders card */}
-        {!collapsed ? (
+        {/* {!collapsed ? (
           <NavLink
             to="/admin/reminders"
             onClick={onClose}
@@ -295,7 +295,7 @@ export default function Sidebar({
               <MessageCircle size={18} />
             </NavLink>
           </div>
-        )}
+        )} */}
 
         {/* Footer */}
         <div className="relative shrink-0 border-t border-white/10 bg-black/15 px-3 pb-3 pt-2">
