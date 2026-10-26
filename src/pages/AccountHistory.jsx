@@ -3,24 +3,62 @@ import { useLocation, useNavigate } from "react-router-dom";
 import axios from "axios";
 import {
   ArrowLeft,
+  ArrowDownLeft,
+  ArrowUpRight,
   Building2,
   CalendarDays,
   ChevronLeft,
   ChevronRight,
+  Clock,
   RefreshCw,
   Search,
   Wallet,
   CheckCircle2,
-  Clock,
   ReceiptText,
 } from "lucide-react";
 
 import Card from "../components/common/Card";
 import Button from "../components/common/Button";
-import Badge from "../components/common/Badge";
 import Input from "../components/common/Input";
 
 const PAGE_LIMIT = 10;
+
+const KIND_LABELS = {
+  booking_token: "Booking token",
+  down_payment: "Down payment",
+  installment: "Installment",
+  income: "Income",
+  expense: "Expense",
+  transfer: "Transfer",
+  refund: "Refund",
+};
+
+const SOURCE_LABELS = {
+  payment: "Payment receipt",
+  financial_transaction: "Income / expense",
+  account_transfer: "Account transfer",
+  payment_reversal: "Refund",
+};
+
+const KIND_OPTIONS = [
+  ["", "All kinds"],
+  ["booking_token", "Booking token"],
+  ["down_payment", "Down payment"],
+  ["installment", "Installment"],
+  ["income", "Income"],
+  ["expense", "Expense"],
+  ["transfer", "Transfer"],
+  ["refund", "Refund"],
+];
+
+const DIRECTION_OPTIONS = [
+  ["", "All directions"],
+  ["credit", "Money in"],
+  ["debit", "Money out"],
+];
+
+const label = (map, value, fallback = "—") =>
+  map[value] || (value ? String(value).replaceAll("_", " ") : fallback);
 
 const money = (amount) =>
   new Intl.NumberFormat("en-IN", {
@@ -32,7 +70,11 @@ const money = (amount) =>
 const formatDate = (value) => {
   if (!value) return "—";
 
-  const date = new Date(value);
+  const dateOnly =
+    typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
+  const date = dateOnly
+    ? new Date(`${value}T00:00:00.000Z`)
+    : new Date(value);
 
   if (Number.isNaN(date.getTime())) return "—";
 
@@ -40,6 +82,7 @@ const formatDate = (value) => {
     day: "2-digit",
     month: "short",
     year: "numeric",
+    ...(dateOnly ? { timeZone: "UTC" } : {}),
   });
 };
 
@@ -81,6 +124,26 @@ function SummaryCard({ title, value, icon: Icon, description }) {
   );
 }
 
+function StatusBadge({ status }) {
+  const styles = {
+    completed: "bg-emerald-50 text-emerald-700 ring-emerald-600/20",
+    pending: "bg-amber-50 text-amber-700 ring-amber-600/20",
+    failed: "bg-red-50 text-red-700 ring-red-600/20",
+    cancelled: "bg-slate-100 text-slate-600 ring-slate-500/20",
+    refunded: "bg-blue-50 text-blue-700 ring-blue-600/20",
+    partially_refunded: "bg-violet-50 text-violet-700 ring-violet-600/20",
+  };
+  const label = String(status || "pending").replaceAll("_", " ");
+
+  return (
+    <span
+      className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold capitalize ring-1 ring-inset ${styles[status] || styles.pending}`}
+    >
+      {label}
+    </span>
+  );
+}
+
 function LoadingState() {
   return (
     <div className="flex min-h-[300px] flex-col items-center justify-center gap-3">
@@ -103,8 +166,8 @@ function EmptyState({ search }) {
 
       <p className="mt-1 text-xs text-[#64736b]">
         {search
-          ? "Try another payment number, customer, plot, or payment method."
-          : "Payments received into this account will appear here."}
+          ? "Try another transaction number, party, plot, or reference."
+          : "Payments and income / expense entries for this account will appear here."}
       </p>
     </div>
   );
@@ -121,8 +184,11 @@ export default function AccountHistory() {
   const [transactions, setTransactions] = useState([]);
   const [summary, setSummary] = useState({
     total_transactions: 0,
-    total_completed_amount: 0,
-    total_pending_amount: 0,
+    totalInflow: 0,
+    totalOutflow: 0,
+    netFlow: 0,
+    completedTotal: 0,
+    pendingTotal: 0,
   });
 
   const [pagination, setPagination] = useState({
@@ -136,6 +202,10 @@ export default function AccountHistory() {
 
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
+  const [kind, setKind] = useState("");
+  const [direction, setDirection] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -177,6 +247,10 @@ export default function AccountHistory() {
               page,
               limit: PAGE_LIMIT,
               search,
+              kind: kind || undefined,
+              direction: direction || undefined,
+              start_date: startDate || undefined,
+              end_date: endDate || undefined,
             },
             withCredentials: true,
           },
@@ -194,12 +268,33 @@ export default function AccountHistory() {
         setTransactions(result.transactions ?? []);
 
         setSummary({
-          total_transactions: Number(result.summary?.total_transactions ?? 0),
-          total_completed_amount: Number(
-            result.summary?.total_completed_amount ?? 0,
+          total_transactions: Number(
+            result.summary?.total_transactions ??
+              result.summary?.totalTransactions ??
+              0,
           ),
-          total_pending_amount: Number(
-            result.summary?.total_pending_amount ?? 0,
+          totalInflow: Number(
+            result.summary?.totalInflow ??
+              result.summary?.total_inflow ??
+              0,
+          ),
+          totalOutflow: Number(
+            result.summary?.totalOutflow ??
+              result.summary?.total_outflow ??
+              0,
+          ),
+          netFlow: Number(
+            result.summary?.netFlow ?? result.summary?.net_flow ?? 0,
+          ),
+          completedTotal: Number(
+            result.summary?.completedTotal ??
+              result.summary?.total_completed_amount ??
+              0,
+          ),
+          pendingTotal: Number(
+            result.summary?.pendingTotal ??
+              result.summary?.total_pending_amount ??
+              0,
           ),
         });
 
@@ -222,10 +317,12 @@ export default function AccountHistory() {
         setRefreshing(false);
       }
     },
-    [accountUuid, page, search],
+    [accountUuid, page, search, kind, direction, startDate, endDate],
   );
 
   useEffect(() => {
+    // Data fetching is the external synchronization this effect performs.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchTransactions();
   }, [fetchTransactions]);
 
@@ -233,6 +330,20 @@ export default function AccountHistory() {
     if (nextPage < 1 || nextPage > pagination.totalPages) return;
     setPage(nextPage);
   };
+
+  const resetFilters = () => {
+    setSearchInput("");
+    setSearch("");
+    setKind("");
+    setDirection("");
+    setStartDate("");
+    setEndDate("");
+    setPage(1);
+  };
+
+  const hasFilters = Boolean(
+    search || kind || direction || startDate || endDate,
+  );
 
   if (!accountUuid) {
     return (
@@ -279,7 +390,8 @@ export default function AccountHistory() {
             </h1>
 
             <p className="mt-1 text-sm text-[#64736b]">
-              View account activity and payment transactions.
+              Unified account activity across payment receipts and income /
+              expense entries.
             </p>
           </div>
         </div>
@@ -329,7 +441,9 @@ export default function AccountHistory() {
                   </h2>
 
                   <p className="mt-1 text-sm text-[#64736b]">
-                    {account?.bank_name || "Bank name not provided"}
+                    {account?.account_type === "cash"
+                      ? "Cash account"
+                      : account?.bank_name || "Bank name not provided"}
                   </p>
 
                   <p className="mt-2 break-all text-xs text-[#64736b]">
@@ -344,7 +458,17 @@ export default function AccountHistory() {
               </div>
             </div>
 
-            <div className="mt-5 grid gap-3 border-t border-[#edf1eb] pt-4 sm:grid-cols-2">
+            <div className="mt-5 grid gap-3 border-t border-[#edf1eb] pt-4 sm:grid-cols-3">
+              <div className="flex items-center gap-3">
+                <Wallet size={17} className="text-[#64736b]" />
+                <div>
+                  <p className="text-xs text-[#64736b]">Opening balance</p>
+                  <p className="mt-1 text-sm font-semibold text-[#14231d]">
+                    {money(account?.opening_balance)}
+                  </p>
+                </div>
+              </div>
+
               <div className="flex items-center gap-3">
                 <CalendarDays size={17} className="text-[#64736b]" />
                 <div>
@@ -370,62 +494,149 @@ export default function AccountHistory() {
           {/* Summary */}
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             <SummaryCard
-              title="Completed payments"
-              value={summary.total_completed_amount}
+              title="Current balance"
+              value={account?.current_balance}
               icon={Wallet}
-              description="Completed payment amount in the current results"
+              description="Opening balance plus eligible credits minus debits"
             />
 
             <SummaryCard
-              title="Pending payments"
-              value={summary.total_pending_amount}
-              icon={Clock}
-              description="Payments currently marked as pending"
+              title="Inflow · filtered"
+              value={summary.totalInflow}
+              icon={ArrowDownLeft}
+              description="Credits matching the current filters"
             />
 
-            <Card className="h-full">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-sm font-medium text-[#64736b]">
-                    Transactions
-                  </p>
+            <SummaryCard
+              title="Outflow · filtered"
+              value={summary.totalOutflow}
+              icon={ArrowUpRight}
+              description="Debits matching the current filters"
+            />
 
-                  <p className="mt-3 text-2xl font-extrabold text-[#14231d]">
-                    {summary.total_transactions.toLocaleString("en-IN")}
-                  </p>
+            <SummaryCard
+              title="Net flow · filtered"
+              value={summary.netFlow}
+              icon={RefreshCw}
+              description="Inflow minus outflow for the current filters"
+            />
 
-                  <p className="mt-2 text-xs text-[#64736b]">
-                    Matching records for this account
-                  </p>
-                </div>
+            <SummaryCard
+              title="Completed · filtered"
+              value={summary.completedTotal}
+              icon={CheckCircle2}
+              description="Completed credit volume"
+            />
 
-                <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[#fff4dc] text-[#936510]">
-                  <ReceiptText size={21} />
-                </div>
-              </div>
-            </Card>
+            <SummaryCard
+              title="Pending · filtered"
+              value={summary.pendingTotal}
+              icon={Clock}
+              description="Pending amount, excluded from balances"
+            />
           </div>
 
           {/* Transactions table */}
           <Card padding="none" className="overflow-hidden">
-            <div className="flex flex-col gap-4 p-5 sm:p-6 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <h2 className="text-lg font-extrabold text-[#14231d]">
-                  Transaction history
-                </h2>
+            <div className="border-b border-[#edf1eb] p-5 sm:p-6">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                <div>
+                  <h2 className="text-lg font-extrabold text-[#14231d]">
+                    Transaction history
+                  </h2>
 
-                <p className="mt-1 text-sm text-[#64736b]">
-                  Payments recorded against this account.
-                </p>
+                  <p className="mt-1 text-sm text-[#64736b]">
+                    Payment receipts and income / expense entries for this
+                    account.
+                  </p>
+                </div>
+
+                <div className="w-full lg:max-w-sm">
+                  <Input
+                    value={searchInput}
+                    onChange={(event) => setSearchInput(event.target.value)}
+                    placeholder="Search number, party, plot or reference..."
+                    leadingIcon={Search}
+                  />
+                </div>
               </div>
 
-              <div className="w-full lg:max-w-sm">
-                <Input
-                  value={searchInput}
-                  onChange={(event) => setSearchInput(event.target.value)}
-                  placeholder="Search payment, customer or plot..."
-                  leadingIcon={Search}
-                />
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                <label className="text-xs font-bold text-[#64736b]">
+                  Kind
+                  <select
+                    value={kind}
+                    onChange={(event) => {
+                      setKind(event.target.value);
+                      setPage(1);
+                    }}
+                    className="mt-1.5 min-h-10 w-full rounded-xl border border-[#dfe5dc] bg-white px-3 text-sm text-[#14231d]"
+                  >
+                    {KIND_OPTIONS.map(([value, text]) => (
+                      <option key={value} value={value}>
+                        {text}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="text-xs font-bold text-[#64736b]">
+                  Direction
+                  <select
+                    value={direction}
+                    onChange={(event) => {
+                      setDirection(event.target.value);
+                      setPage(1);
+                    }}
+                    className="mt-1.5 min-h-10 w-full rounded-xl border border-[#dfe5dc] bg-white px-3 text-sm text-[#14231d]"
+                  >
+                    {DIRECTION_OPTIONS.map(([value, text]) => (
+                      <option key={value} value={value}>
+                        {text}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="text-xs font-bold text-[#64736b]">
+                  Start date
+                  <input
+                    type="date"
+                    value={startDate}
+                    max={endDate || undefined}
+                    onChange={(event) => {
+                      setStartDate(event.target.value);
+                      setPage(1);
+                    }}
+                    className="mt-1.5 min-h-10 w-full rounded-xl border border-[#dfe5dc] bg-white px-3 text-sm text-[#14231d]"
+                  />
+                </label>
+
+                <label className="text-xs font-bold text-[#64736b]">
+                  End date
+                  <input
+                    type="date"
+                    value={endDate}
+                    min={startDate || undefined}
+                    onChange={(event) => {
+                      setEndDate(event.target.value);
+                      setPage(1);
+                    }}
+                    className="mt-1.5 min-h-10 w-full rounded-xl border border-[#dfe5dc] bg-white px-3 text-sm text-[#14231d]"
+                  />
+                </label>
+
+                <div className="flex items-end">
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={resetFilters}
+                    disabled={!hasFilters}
+                    className="w-full"
+                  >
+                    Clear filters
+                  </Button>
+                </div>
               </div>
             </div>
 
@@ -433,79 +644,111 @@ export default function AccountHistory() {
               <EmptyState search={search} />
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[1000px] text-left text-sm">
+                <table className="w-full min-w-[1050px] text-left text-sm">
                   <thead className="bg-[#f7f8f6] text-[11px] uppercase tracking-wider text-[#64736b]">
                     <tr>
                       <th className="px-5 py-3">Transaction</th>
-                      <th className="px-5 py-3">Customer</th>
-                      <th className="px-5 py-3">Plot / Booking</th>
-                      <th className="px-5 py-3">Payment date</th>
-                      <th className="px-5 py-3">Method</th>
+                      <th className="px-5 py-3">Party</th>
+                      <th className="px-5 py-3">Plot / category</th>
+                      <th className="px-5 py-3">Date</th>
+                      <th className="px-5 py-3">Channel / method</th>
                       <th className="px-5 py-3">Amount</th>
                       <th className="px-5 py-3">Status</th>
                     </tr>
                   </thead>
 
                   <tbody className="divide-y divide-[#edf1eb]">
-                    {transactions.map((item, index) => (
-                      <tr
-                        key={
-                          item.payment_uuid ||
-                          item.payment_id ||
-                          `payment-${index}`
-                        }
-                        className="transition hover:bg-[#fafbf9]"
-                      >
-                        <td className="px-5 py-4">
-                          <p className="font-bold text-[#0b5a3e]">
-                            {item.payment_number || "—"}
-                          </p>
-                          <p className="mt-1 text-[11px] text-[#64736b]">
-                            ID: {item.payment_id || "—"}
-                          </p>
-                        </td>
+                    {transactions.map((item, index) => {
+                      const incoming = item.direction === "credit";
+                      const hasPlot = Boolean(item.plotNumber);
 
-                        <td className="px-5 py-4">
-                          <p className="font-semibold text-[#14231d]">
-                            {item.customer_name || "—"}
-                          </p>
-                          <p className="mt-1 text-xs text-[#64736b]">
-                            {item.customer_phone || "—"}
-                          </p>
-                        </td>
+                      return (
+                        <tr
+                          key={
+                            item.sourceRowId
+                              ? `${item.sourceType}-${item.sourceRowId}`
+                              : item.sourceUuid
+                                ? `${item.sourceType}-${item.sourceUuid}`
+                                : `transaction-${index}`
+                          }
+                          className="transition hover:bg-[#fafbf9]"
+                        >
+                          <td className="px-5 py-4">
+                            <p className="font-bold text-[#0b5a3e]">
+                              {item.transactionNumber || "—"}
+                            </p>
+                            <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                              <span className="rounded-full bg-[#f1f4ef] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[#64736b]">
+                                {label(KIND_LABELS, item.kind)}
+                              </span>
+                              <span className="text-[10px] font-semibold uppercase tracking-wide text-[#87938c]">
+                                {label(SOURCE_LABELS, item.sourceType)}
+                              </span>
+                            </div>
+                          </td>
 
-                        <td className="px-5 py-4">
-                          <p className="font-bold text-[#14231d]">
-                            {item.plot_number || "—"}
-                          </p>
-                          <p className="mt-1 text-xs text-[#64736b]">
-                            {item.booking_number || "—"}
-                          </p>
-                        </td>
+                          <td className="px-5 py-4">
+                            <p className="font-semibold text-[#14231d]">
+                              {item.displayPartyName ||
+                                item.customerName ||
+                                item.partyName ||
+                                "—"}
+                            </p>
+                            <p className="mt-1 text-xs text-[#64736b]">
+                              {item.customerPhone ||
+                                item.categoryName ||
+                                item.referenceNumber ||
+                                "—"}
+                            </p>
+                          </td>
 
-                        <td className="px-5 py-4 text-[#46564d]">
-                          {formatDateTime(item.payment_date)}
-                        </td>
+                          <td className="px-5 py-4">
+                            <p className="font-bold text-[#14231d]">
+                              {hasPlot
+                                ? item.plotNumber
+                                : item.categoryName || "General ledger"}
+                            </p>
+                            <p className="mt-1 text-xs text-[#64736b]">
+                              {hasPlot
+                                ? [item.projectName, item.bookingNumber]
+                                    .filter(Boolean)
+                                    .join(" · ") || "—"
+                                : item.partyName ||
+                                  label(SOURCE_LABELS, item.sourceType)}
+                            </p>
+                          </td>
 
-                        <td className="px-5 py-4">
-                          <span className="rounded-lg bg-[#f1f4ef] px-2.5 py-1.5 text-xs font-semibold capitalize text-[#46564d]">
-                            {(item.payment_method || "—").replaceAll("_", " ")}
-                          </span>
-                        </td>
+                          <td className="whitespace-nowrap px-5 py-4 text-[#46564d]">
+                            {formatDateTime(item.transactionDate)}
+                          </td>
 
-                        <td className="px-5 py-4 font-extrabold text-[#14231d]">
-                          {money(item.amount)}
-                        </td>
+                          <td className="px-5 py-4">
+                            <p className="text-xs font-bold capitalize text-[#46564d]">
+                              {item.channel || "—"}
+                            </p>
+                            <p className="mt-1 text-xs capitalize text-[#64736b]">
+                              {label({}, item.paymentMethod, "—")}
+                            </p>
+                          </td>
 
-                        <td className="px-5 py-4">
-                          {item.payment_status ? (
-                            <Badge status={item.payment_status} size="sm" />
-                          ) : (
-                            "—"
-                          )}
-                        </td>
-                      </tr>
-                    ))}
+                          <td
+                            className={`whitespace-nowrap px-5 py-4 font-extrabold ${incoming ? "text-emerald-700" : "text-rose-700"}`}
+                          >
+                            {incoming ? "+" : "-"}
+                            {money(item.amount)}
+                          </td>
+
+                          <td className="px-5 py-4">
+                            <StatusBadge status={item.status} />
+                            {!item.countsAsBalance && (
+                              <p className="mt-1 text-[10px] font-semibold text-[#87938c]">
+                                Not in balance
+                              </p>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

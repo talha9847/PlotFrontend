@@ -10,6 +10,7 @@ const GREEN = "border-[#bfe0cf] bg-[#e9f6ef] text-[#0b5a3e]";
 const GOLD = "border-[#ecd9ad] bg-[#fbf3e0] text-[#7a5d1c]";
 const GREY = "border-[#dfe5dc] bg-[#eef1ec] text-[#5b6b63]";
 const RED = "border-rose-200 bg-rose-50 text-rose-800";
+const SKY = "border-sky-200 bg-sky-50 text-sky-800";
 
 const presets = {
   available: GREEN,
@@ -21,6 +22,7 @@ const presets = {
   pending: GOLD,
   warning: GOLD,
   "due soon": GOLD,
+  upcoming: SKY,
   sold: GREY,
   inactive: GREY,
   overdue: RED,
@@ -37,6 +39,7 @@ const icons = {
   booked: Clock3,
   pending: Clock3,
   "due soon": Clock3,
+  upcoming: Clock3,
   sold: CircleDashed,
   inactive: CircleDashed,
   overdue: AlertCircle,

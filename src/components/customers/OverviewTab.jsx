@@ -87,17 +87,33 @@ export default function OverviewTab({
   customer,
   bookings,
   paidInstallments,
-  upcoming,
-  overdue,
-  stats,
+  dueInstallments = [],
+  nextUpcomingInstallment = null,
   onViewBookings,
   onViewPayments,
 }) {
   const customerName = customer?.name || "Customer";
-  const overdueAmount = overdue.reduce(
-    (sum, item) => sum + Math.max(0, number(item.amount_due) - number(item.amount_paid)),
+  const hasDueInstallments = dueInstallments.length > 0;
+  const isAdvanceMode = !hasDueInstallments && Boolean(nextUpcomingInstallment);
+  const visibleInstallments = hasDueInstallments
+    ? dueInstallments
+    : nextUpcomingInstallment
+      ? [nextUpcomingInstallment]
+      : [];
+
+  const installmentAmount = (item) =>
+    Math.max(
+      0,
+      number(item.amount_due) + number(item.late_fee) - number(item.amount_paid),
+    );
+
+  const dueAmount = dueInstallments.reduce(
+    (sum, item) => sum + installmentAmount(item),
     0,
   );
+  const nextAmount = nextUpcomingInstallment
+    ? installmentAmount(nextUpcomingInstallment)
+    : 0;
 
   return (
     <div className="grid grid-cols-1 items-start gap-6 xl:grid-cols-3">
@@ -165,43 +181,89 @@ export default function OverviewTab({
 
       <aside className="space-y-6">
         <Card padding="md">
-          <SectionTitle title="Upcoming installments" description="Next scheduled payments." />
-          {upcoming.length ? (
-            <div className="space-y-3">
-              {[...upcoming]
+          <SectionTitle
+            title={
+              isAdvanceMode
+                ? "Upcoming installment"
+                : "Due & overdue installments"
+            }
+            description={
+              isAdvanceMode
+                ? "No installments are currently due. The next upcoming installment can be paid in advance."
+                : "Installments that have reached their due date and remain unpaid."
+            }
+          />
+          {visibleInstallments.length ? (
+            <div className="max-h-[420px] space-y-3 overflow-y-auto pr-1">
+              {[...visibleInstallments]
                 .sort((a, b) => new Date(a.due_date) - new Date(b.due_date))
-                .slice(0, 5)
-                .map((item) => (
-                  <div key={item.id} className="rounded-xl border border-[#edf1eb] p-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="text-sm font-extrabold">{item.plot_number || "Plot"}</p>
-                        <p className="mt-1 text-[11px] text-[#5b6b63]">
-                          Installment #{item.installment_number} · {item.booking_number}
+                .map((item) => {
+                  const isUpcoming = isAdvanceMode;
+
+                  return (
+                    <div
+                      key={item.id}
+                      className={`rounded-xl border p-3 ${
+                        isUpcoming
+                          ? "border-sky-200 bg-sky-50/60"
+                          : "border-[#edf1eb]"
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-sm font-extrabold">
+                            {item.plot_number || "Plot"}
+                          </p>
+                          <p className="mt-1 text-[11px] text-[#5b6b63]">
+                            Installment #{item.installment_number} ·{" "}
+                            {item.booking_number}
+                          </p>
+                        </div>
+                        <p className="shrink-0 text-sm font-extrabold">
+                          {money(installmentAmount(item))}
                         </p>
                       </div>
-                      <p className="shrink-0 text-sm font-extrabold">
-                        {money(Math.max(0, number(item.amount_due) - number(item.amount_paid)))}
-                      </p>
+                      <div className="mt-3 flex items-center justify-between border-t border-[#edf1eb] pt-3 text-[11px]">
+                        <span className="text-[#5b6b63]">
+                          Due {formatDate(item.due_date)}
+                        </span>
+                        <Badge
+                          status={isUpcoming ? "upcoming" : item.status}
+                          size="sm"
+                        />
+                      </div>
                     </div>
-                    <div className="mt-3 flex items-center justify-between border-t border-[#edf1eb] pt-3 text-[11px]">
-                      <span className="text-[#5b6b63]">Due {formatDate(item.due_date)}</span>
-                      <Badge status={item.status} size="sm" />
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
             </div>
           ) : (
-            <p className="py-5 text-sm text-[#5b6b63]">No upcoming installments.</p>
+            <p className="py-5 text-sm text-[#5b6b63]">
+              No pending installments.
+            </p>
           )}
 
-          {overdue.length > 0 && (
+          {hasDueInstallments ? (
             <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3">
               <p className="text-xs font-bold text-red-700">
-                {overdue.length} overdue installment{overdue.length > 1 ? "s" : ""}
+                {dueInstallments.length} due or overdue installment
+                {dueInstallments.length > 1 ? "s" : ""}
               </p>
-              <p className="mt-1 text-xs text-red-600">Outstanding overdue: {money(overdueAmount)}</p>
+              <p className="mt-1 text-xs text-red-600">
+                Outstanding due: {money(dueAmount)}
+              </p>
             </div>
+          ) : (
+            nextUpcomingInstallment && (
+              <div className="mt-4 rounded-xl border border-sky-200 bg-sky-50 p-3">
+                <p className="text-xs font-bold text-sky-800">
+                  Next installment due{" "}
+                  {formatDate(nextUpcomingInstallment.due_date)}
+                </p>
+                <p className="mt-1 text-xs text-sky-700">
+                  Upcoming amount: {money(nextAmount)}
+                </p>
+              </div>
+            )
           )}
         </Card>
 

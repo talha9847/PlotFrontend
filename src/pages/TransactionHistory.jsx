@@ -5,11 +5,13 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
+  ArrowLeftRight,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   Download,
   Plus,
+  RotateCcw,
   Search,
   SlidersHorizontal,
   X,
@@ -21,7 +23,10 @@ import Input from "../components/common/Input";
 import Button from "../components/common/Button";
 import Modal from "../components/common/Modal";
 import Loader from "../components/common/Loader";
+import PaymentAccountFields from "../components/common/PaymentAccountFields";
+import FinancialSummary from "../components/finance/FinancialSummary";
 import { useToast } from "../components/common/Toast";
+import { useAuth } from "../context/authContext";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import SearchablePartySelect from "../components/common/SearchablePartySelect";
@@ -48,17 +53,108 @@ const STATUSES = [
   ["refunded", "Refunded"],
 ];
 
+const SOURCE_TYPES = [
+  ["", "All sources"],
+  ["payment", "Payment receipt"],
+  ["financial_transaction", "Income / expense"],
+  ["account_transfer", "Account transfer"],
+  ["payment_reversal", "Refund"],
+];
+
+const KINDS = [
+  ["", "All kinds"],
+  ["booking_token", "Booking token"],
+  ["down_payment", "Down payment"],
+  ["installment", "Installment"],
+  ["income", "Income"],
+  ["expense", "Expense"],
+  ["transfer", "Transfer"],
+  ["refund", "Refund"],
+];
+
+const DIRECTIONS = [
+  ["", "All directions"],
+  ["credit", "Money in"],
+  ["debit", "Money out"],
+];
+
+const CHANNELS = [
+  ["", "All accounts"],
+  ["cash", "Cash"],
+  ["bank", "Bank"],
+];
+
+const KIND_LABELS = Object.fromEntries(KINDS.filter(([value]) => value));
+const SOURCE_LABELS = Object.fromEntries(
+  SOURCE_TYPES.filter(([value]) => value),
+);
+
+const formatKind = (kind) =>
+  KIND_LABELS[kind] || String(kind || "—").replaceAll("_", " ");
+
 const first = (...values) =>
   values.find((value) => value !== undefined && value !== null);
 
 function normalizeTransaction(row) {
-  const id = first(row.id, row.uuid, row.payment_id);
+  const sourceType = first(row.sourceType, row.source_type, "payment");
+  const sourceUuid = String(
+    first(
+      row.sourceUuid,
+      row.source_uuid,
+      row.payment_uuid,
+      row.uuid,
+      row.id,
+      "",
+    ),
+  );
+  const sourceRowId = String(
+    first(row.sourceRowId, row.source_row_id, "") || "",
+  );
+  const kind = first(
+    row.kind,
+    row.payment_purpose,
+    row.paymentPurpose,
+    "installment",
+  );
+  const direction = first(
+    row.direction,
+    kind === "expense" ? "debit" : "credit",
+  );
+
   return {
     ...row,
-    id,
-    uuid: String(first(row.uuid, row.id, row.payment_id, "")),
-    number: first(row.payment_number, row.paymentNumber, row.number, "—"),
-    date: first(row.payment_date, row.paymentDate, row.date, ""),
+    // Transfer legs share a source UUID, so the row id keeps them distinct.
+    key: `${sourceType}:${sourceRowId || sourceUuid}`,
+    sourceType,
+    sourceUuid,
+    sourceRowId,
+    sourceLabel: SOURCE_LABELS[sourceType] || sourceType,
+    id: first(
+      sourceRowId,
+      row.source_row_id,
+      row.id,
+      row.payment_id,
+      sourceUuid,
+    ),
+    uuid: sourceUuid,
+    number: first(
+      row.transactionNumber,
+      row.transaction_number,
+      row.payment_number,
+      row.paymentNumber,
+      "—",
+    ),
+    date: first(
+      row.transactionDate,
+      row.transaction_date,
+      row.payment_date,
+      row.paymentDate,
+      "",
+    ),
+    kind,
+    kindLabel: formatKind(kind),
+    direction,
+    channel: first(row.channel, row.account_type, ""),
     customerId: first(
       row.customer_id,
       row.customerId,
@@ -66,25 +162,59 @@ function normalizeTransaction(row) {
       row.customerUuid,
       "",
     ),
-    customerName: first(row.customer_name, row.customerName, row.name, "—"),
-    customerPhone: first(row.customer_phone, row.customerPhone, row.phone, "—"),
+    customerUuid: first(row.customerUuid, row.customer_uuid, ""),
+    customerName: first(row.customer_name, row.customerName, ""),
+    customerPhone: first(row.customer_phone, row.customerPhone, ""),
+    partyName: first(row.partyName, row.party_name, ""),
+    displayPartyName: first(
+      row.displayPartyName,
+      row.display_party_name,
+      row.customerName,
+      row.customer_name,
+      row.partyName,
+      row.party_name,
+      "—",
+    ),
+    categoryName: first(row.categoryName, row.category_name, ""),
     projectId: first(row.project_id, row.projectId, ""),
     projectName: first(row.project_name, row.projectName, row.project, "—"),
     plotId: first(row.plot_id, row.plotId, ""),
     plotNumber: first(row.plot_number, row.plotNumber, "—"),
     accountId: first(row.account_id, row.accountId, ""),
     accountName: first(row.account_name, row.accountName, "—"),
+    bankName: first(row.bank_name, row.bankName, ""),
     method: first(row.payment_method, row.paymentMethod, row.method, "other"),
     status: first(row.status, "pending"),
     amount: Number(first(row.amount, 0)),
-    booking: first(row.booking_number, row.bookingNumber, row.booking, "—"),
+    booking: first(row.bookingNumber, row.booking_number, row.booking, "—"),
+    bookingNumber: first(row.bookingNumber, row.booking_number, ""),
+    bookingUuid: first(row.bookingUuid, row.booking_uuid, ""),
+    referenceNumber: first(
+      row.referenceNumber,
+      row.reference_number,
+      row.transaction_reference,
+      "",
+    ),
+    installmentNumber: first(
+      row.installmentNumber,
+      row.installment_number,
+      "",
+    ),
+    installmentCount: first(row.installmentCount, row.installment_count, ""),
     receivedBy: first(
+      row.createdByName,
+      row.created_by_name,
       row.received_by_name,
       row.receivedBy,
       row.received_by,
       "—",
     ),
     note: first(row.notes, row.note, ""),
+    countsAsBalance: Boolean(
+      first(row.countsAsBalance, row.counts_as_balance, false),
+    ),
+    createdAt: first(row.createdAt, row.created_at, ""),
+    updatedAt: first(row.updatedAt, row.updated_at, ""),
   };
 }
 
@@ -95,117 +225,49 @@ const formatINR = (amount) =>
     maximumFractionDigits: 0,
   }).format(Number(amount) || 0);
 
-const formatDate = (value) =>
-  new Intl.DateTimeFormat("en-IN", {
+const isDateOnly = (value) =>
+  typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
+
+const parseDate = (value) => {
+  if (!value) return null;
+
+  // Date-only values are calendar dates, not instants. Parsing them as UTC
+  // avoids the previous-day shift in negative-offset time zones.
+  const date = isDateOnly(value)
+    ? new Date(`${value}T00:00:00.000Z`)
+    : new Date(value);
+
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const formatDateTime = (value) => {
+  const date = parseDate(value);
+
+  if (!date) return "—";
+
+  const format = {
     day: "2-digit",
     month: "short",
     year: "numeric",
-  }).format(new Date(value));
-
-const formatDateTime = (value) =>
-  new Intl.DateTimeFormat("en-IN", {
-    day: "2-digit",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
-
-function getInstallmentProgress(row) {
-  // Supports common API naming conventions. Prefer the paid/current installment
-  // count and the total installment count supplied by the backend.
-  const paid = first(
-    row.paid_installments,
-    row.paidInstallments,
-    row.installments_paid,
-    row.installmentsPaid,
-    row.completed_installments,
-    row.completedInstallments,
-    row.installment_paid_count,
-    row.installmentPaidCount,
-    row.current_installment,
-    row.currentInstallment,
-    row.installment_number,
-    row.installmentNumber,
-    row.installment_no,
-    row.installmentNo,
-  );
-  const total = first(
-    row.total_installments,
-    row.totalInstallments,
-    row.installment_total,
-    row.installmentTotal,
-    row.installment_count,
-    row.installmentCount,
-    row.number_of_installments,
-    row.numberOfInstallments,
-  );
-
-  const paidCount = Number(paid);
-  const totalCount = Number(total);
-  if (
-    paid === undefined ||
-    total === undefined ||
-    !Number.isFinite(paidCount) ||
-    !Number.isFinite(totalCount) ||
-    totalCount <= 0
-  )
-    return null;
-
-  const completed = Math.max(0, Math.min(paidCount, totalCount));
-  return {
-    completed,
-    total: totalCount,
-    percentage: Math.round((completed / totalCount) * 100),
   };
-}
 
-function InstallmentProgress({ progress }) {
-  if (!progress) return null;
+  if (!isDateOnly(value)) {
+    format.hour = "2-digit";
+    format.minute = "2-digit";
+  } else {
+    format.timeZone = "UTC";
+  }
 
-  const radius = 15;
-  const circumference = 2 * Math.PI * radius;
-  const offset = circumference * (1 - progress.percentage / 100);
+  return new Intl.DateTimeFormat("en-IN", format).format(date);
+};
+
+function KindBadge({ kind }) {
+  if (!kind) return null;
 
   return (
-    <div
-      className="mt-2 inline-flex items-center gap-2"
-      title={`${progress.completed} of ${progress.total} installments paid (${progress.percentage}%)`}
-      aria-label={`${progress.completed} of ${progress.total} installments paid, ${progress.percentage}%`}
-    >
-      <span className="relative grid h-9 w-9 shrink-0 place-items-center">
-        <svg
-          viewBox="0 0 36 36"
-          className="absolute inset-0 h-9 w-9 -rotate-90"
-          aria-hidden="true"
-        >
-          <circle
-            cx="18"
-            cy="18"
-            r={radius}
-            fill="none"
-            stroke="#e5ebe2"
-            strokeWidth="3.5"
-          />
-          <circle
-            cx="18"
-            cy="18"
-            r={radius}
-            fill="none"
-            stroke="#1b7a5a"
-            strokeWidth="3.5"
-            strokeLinecap="round"
-            strokeDasharray={circumference}
-            strokeDashoffset={offset}
-          />
-        </svg>
-        <span className="text-[9px] font-extrabold leading-none text-[#0b3d2e]">
-          {progress.percentage}%
-        </span>
-      </span>
-      <span className="text-xs font-semibold text-[#5b6b63]">
-        {progress.completed}/{progress.total} installments
-      </span>
-    </div>
+    <span className="inline-flex whitespace-nowrap rounded-full bg-[#f1f4ef] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[#5b6b63]">
+      {formatKind(kind)}
+    </span>
   );
 }
 
@@ -268,30 +330,41 @@ export default function TransactionHistory() {
   const [selectedTransactions, setSelectedTransactions] = useState({});
   const [showFilters, setShowFilters] = useState(false);
   const [detail, setDetail] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState("");
   const [loading, setLoading] = useState(false);
   const requestIdRef = useRef(0);
+  const detailRequestRef = useRef(0);
   const [loadingAccounts, setLoadingAccounts] = useState(false);
   const [loadingProjects, setLoadingProjects] = useState(false);
+  const [loadingCategories, setLoadingCategories] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [addTransactionOpen, setAddTransactionOpen] = useState(false);
   const [savingTransaction, setSavingTransaction] = useState(false);
 
-  const getParties = async () => {
-    try {
-      const res = await axios.get("/api/parties/dropdown", {
-        withCredentials: true,
-      });
-      if (res.status == 200) {
-        console.log(res.data.data);
-      }
-    } catch (error) {
-      console.log(error);
-    }
-  };
-
-  useEffect(() => {
-    getParties();
+  const [transferOpen, setTransferOpen] = useState(false);
+  const [savingTransfer, setSavingTransfer] = useState(false);
+  const [transferForm, setTransferForm] = useState({
+    from_account_id: "",
+    to_account_id: "",
+    amount: "",
+    transfer_date: new Date().toISOString().slice(0, 10),
+    reference_number: "",
+    notes: "",
   });
+
+  const [refundTransaction, setRefundTransaction] = useState(null);
+  const [savingRefund, setSavingRefund] = useState(false);
+  const [refundForm, setRefundForm] = useState({
+    amount: "",
+    reason: "",
+    payment_method: "cash",
+    account_id: "",
+    refund_date: new Date().toISOString().slice(0, 10),
+    reference_number: "",
+  });
+
+  const [categories, setCategories] = useState([]);
   const [newTransaction, setNewTransaction] = useState({
     transaction_type: "income",
     party_id: "",
@@ -300,6 +373,7 @@ export default function TransactionHistory() {
     account_id: "",
     payment_method: "cash",
     transaction_date: new Date().toISOString().slice(0, 10),
+    reference_number: "",
     notes: "",
   });
   const [accounts, setAccounts] = useState([]);
@@ -308,44 +382,39 @@ export default function TransactionHistory() {
   const [totalPages, setTotalPages] = useState(1);
 
   const navigate = useNavigate();
-  const [summary, setSummary] = useState({
-    completedTotal: 0,
-    pendingTotal: 0,
-    refundedTotal: 0,
-  });
+  const [balances, setBalances] = useState(null);
+  const [balancesLoading, setBalancesLoading] = useState(true);
+  const [balancesError, setBalancesError] = useState("");
   const toast = useToast();
-
-  // Static options for the initial UI. Replace these IDs/labels with values
-  // returned by your parties, transaction-categories, and accounts APIs.
-  const STATIC_CUSTOMERS = [
-    { value: "1", label: "Walk-in Customer" },
-    { value: "2", label: "Rahul Sharma" },
-    { value: "3", label: "Priya Patel" },
-  ];
-  const STATIC_CATEGORIES = [
-    { value: "1", label: "Sales" },
-    { value: "2", label: "Office expenses" },
-    { value: "3", label: "Other" },
-  ];
-  const STATIC_ACCOUNTS = [
-    { value: "1", label: "Cash" },
-    { value: "2", label: "BOB" },
-    { value: "3", label: "SBI" },
-  ];
+  const { user } = useAuth();
+  const role = user?.role;
+  const canWrite = ["admin", "manager", "accountant"].includes(role);
+  const canRefund = ["admin", "manager"].includes(role);
 
   async function handleAddTransaction(event) {
     event.preventDefault();
     if (savingTransaction) return;
 
     const amount = Number(newTransaction.amount);
-    if (
-      !newTransaction.party_id ||
-      !newTransaction.category_id ||
-      !newTransaction.account_id
-    ) {
-      toast("Please select a customer, category, and account.", "error");
+
+    if (!newTransaction.category_id) {
+      toast("Please select a category.", "error");
       return;
     }
+
+    if (!newTransaction.payment_method) {
+      toast("Please select a payment method.", "error");
+      return;
+    }
+
+    if (
+      newTransaction.payment_method !== "cash" &&
+      !newTransaction.account_id
+    ) {
+      toast("Select the bank account for this transaction.", "error");
+      return;
+    }
+
     if (!Number.isFinite(amount) || amount <= 0) {
       toast("Amount must be greater than zero.", "error");
       return;
@@ -357,19 +426,27 @@ export default function TransactionHistory() {
         "/api/transactions",
         {
           transaction_type: newTransaction.transaction_type,
-          party_id: Number(newTransaction.party_id),
+          party_id: newTransaction.party_id
+            ? Number(newTransaction.party_id)
+            : null,
           category_id: Number(newTransaction.category_id),
           amount,
-          account_id: Number(newTransaction.account_id),
+          account_id:
+            newTransaction.payment_method === "cash" ||
+            !newTransaction.account_id
+              ? null
+              : Number(newTransaction.account_id),
           payment_method: newTransaction.payment_method,
-          transaction_date: newTransaction.transaction_date
-            ? new Date(
-                `${newTransaction.transaction_date}T00:00:00`,
-              ).toISOString()
-            : undefined,
+          // The API expects a calendar date in YYYY-MM-DD form.
+          transaction_date: newTransaction.transaction_date || undefined,
+          reference_number:
+            newTransaction.reference_number.trim() || undefined,
           notes: newTransaction.notes.trim() || undefined,
         },
-        { withCredentials: true },
+        {
+          withCredentials: true,
+          headers: { "Idempotency-Key": crypto.randomUUID() },
+        },
       );
 
       if (response.status === 200 || response.status === 201) {
@@ -386,10 +463,11 @@ export default function TransactionHistory() {
           account_id: "",
           payment_method: "cash",
           transaction_date: new Date().toISOString().slice(0, 10),
+          reference_number: "",
           notes: "",
         });
         setPage(1);
-        await fetchTransactions();
+        await refreshLedger();
       }
     } catch (error) {
       toast(
@@ -401,12 +479,162 @@ export default function TransactionHistory() {
     }
   }
 
+  async function handleTransfer(event) {
+    event.preventDefault();
+    if (savingTransfer) return;
+
+    if (!transferForm.from_account_id || !transferForm.to_account_id) {
+      toast("Select both the source and destination accounts.", "error");
+      return;
+    }
+
+    if (transferForm.from_account_id === transferForm.to_account_id) {
+      toast("Source and destination accounts must be different.", "error");
+      return;
+    }
+
+    const amount = Number(transferForm.amount);
+
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toast("Transfer amount must be greater than zero.", "error");
+      return;
+    }
+
+    try {
+      setSavingTransfer(true);
+      const response = await axios.post(
+        "/api/transactions/transfers",
+        {
+          from_account_id: Number(transferForm.from_account_id),
+          to_account_id: Number(transferForm.to_account_id),
+          amount,
+          transfer_date: transferForm.transfer_date || undefined,
+          reference_number: transferForm.reference_number.trim() || undefined,
+          notes: transferForm.notes.trim() || undefined,
+        },
+        {
+          withCredentials: true,
+          headers: { "Idempotency-Key": crypto.randomUUID() },
+        },
+      );
+
+      toast(
+        response.data?.message || "Transfer recorded successfully.",
+        "success",
+      );
+      setTransferOpen(false);
+      setTransferForm({
+        from_account_id: "",
+        to_account_id: "",
+        amount: "",
+        transfer_date: new Date().toISOString().slice(0, 10),
+        reference_number: "",
+        notes: "",
+      });
+      setPage(1);
+      await refreshLedger();
+    } catch (error) {
+      toast(
+        error.response?.data?.message || "Failed to record transfer.",
+        "error",
+      );
+    } finally {
+      setSavingTransfer(false);
+    }
+  }
+
+  function openRefundModal(transaction) {
+    setRefundTransaction(transaction);
+    setRefundForm({
+      amount: "",
+      reason: "",
+      payment_method: transaction.method || "cash",
+      account_id: "",
+      refund_date: new Date().toISOString().slice(0, 10),
+      reference_number: "",
+    });
+  }
+
+  function closeRefundModal() {
+    if (savingRefund) return;
+
+    setRefundTransaction(null);
+  }
+
+  async function handleRefund(event) {
+    event.preventDefault();
+    if (!refundTransaction || savingRefund) return;
+
+    const amount = Number(refundForm.amount);
+
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toast("Refund amount must be greater than zero.", "error");
+      return;
+    }
+
+    if (amount > Number(refundTransaction.amount)) {
+      toast(
+        "Refund cannot exceed the original payment amount (less any prior refunds).",
+        "error",
+      );
+      return;
+    }
+
+    if (!refundForm.reason.trim()) {
+      toast("A refund reason is required.", "error");
+      return;
+    }
+
+    if (refundForm.payment_method !== "cash" && !refundForm.account_id) {
+      toast("Select the bank account for this refund.", "error");
+      return;
+    }
+
+    try {
+      setSavingRefund(true);
+      const response = await axios.post(
+        `/api/payments/${encodeURIComponent(refundTransaction.sourceUuid)}/refund`,
+        {
+          amount,
+          reason: refundForm.reason.trim(),
+          payment_method: refundForm.payment_method,
+          account_id:
+            refundForm.payment_method === "cash" || !refundForm.account_id
+              ? null
+              : Number(refundForm.account_id),
+          refund_date: refundForm.refund_date || undefined,
+          reference_number: refundForm.reference_number.trim() || undefined,
+        },
+        {
+          withCredentials: true,
+          headers: { "Idempotency-Key": crypto.randomUUID() },
+        },
+      );
+
+      toast(response.data?.message || "Refund recorded successfully.", "success");
+      setRefundTransaction(null);
+      setDetail(null);
+      await refreshLedger();
+    } catch (error) {
+      toast(
+        error.response?.data?.message || "Failed to record refund.",
+        "error",
+      );
+    } finally {
+      setSavingRefund(false);
+    }
+  }
+
   const [filters, setFilters] = useState({
     customer_id: "",
     project_id: "",
     plot_id: "",
     account_id: "",
     payment_method: "",
+    source_type: "",
+    kind: "",
+    direction: "",
+    channel: "",
   });
 
   const getProjects = async () => {
@@ -442,8 +670,51 @@ export default function TransactionHistory() {
     }
   };
 
+  const fetchAccountBalances = async () => {
+    setBalancesLoading(true);
+    setBalancesError("");
+
+    try {
+      const res = await axios.get("/api/accounts/balances", {
+        withCredentials: true,
+      });
+      setBalances(res.data?.data || null);
+    } catch (error) {
+      setBalancesError(
+        error.response?.data?.message ||
+          "Unable to load account balances. Please try again.",
+      );
+    } finally {
+      setBalancesLoading(false);
+    }
+  };
+
+  const refreshLedger = async () => {
+    await Promise.all([fetchTransactions(), fetchAccountBalances()]);
+  };
+
+  const getCategories = async () => {
+    setLoadingCategories(true);
+    try {
+      const res = await axios.get("/api/categories", {
+        params: { limit: 100, isActive: "true", sortBy: "name", sortOrder: "asc" },
+        withCredentials: true,
+      });
+      if (res.status === 200) {
+        const rows = res.data?.data;
+        setCategories(Array.isArray(rows) ? rows : []);
+      }
+    } catch (error) {
+      toast(
+        error.response?.data?.message || "Failed to load transaction categories.",
+        "error",
+      );
+    } finally {
+      setLoadingCategories(false);
+    }
+  };
+
   const buildParams = (includePagination = true) => {
-    console.log(filters);
     const params = {
       search: search.trim() || undefined,
       customer_id: filters.customer_id || undefined,
@@ -451,6 +722,10 @@ export default function TransactionHistory() {
       plot_id: filters.plot_id || undefined,
       account_id: filters.account_id || undefined,
       payment_method: filters.payment_method || undefined,
+      source_type: filters.source_type || undefined,
+      kind: filters.kind || undefined,
+      direction: filters.direction || undefined,
+      channel: filters.channel || undefined,
       status: status || undefined,
       start_date: startDate || undefined,
       end_date: endDate || undefined,
@@ -483,7 +758,7 @@ export default function TransactionHistory() {
       // Ignore outdated responses if a newer filter request has already started.
       if (requestId !== requestIdRef.current) return;
       setTransactions(rows.map(normalizeTransaction));
-      const pagination = payload.pagination || data.pagination || {};
+      const pagination = data.pagination || payload.pagination || {};
       const nextTotal =
         Number(
           first(
@@ -506,36 +781,6 @@ export default function TransactionHistory() {
           ) || 1,
         ),
       );
-      const totals = payload.summary || data.summary || {};
-      setSummary({
-        completedTotal:
-          Number(
-            first(
-              totals.completedTotal,
-              totals.completed_total,
-              totals.completed_amount,
-              0,
-            ),
-          ) || 0,
-        pendingTotal:
-          Number(
-            first(
-              totals.pendingTotal,
-              totals.pending_total,
-              totals.pending_amount,
-              0,
-            ),
-          ) || 0,
-        refundedTotal:
-          Number(
-            first(
-              totals.refundedTotal,
-              totals.refunded_total,
-              totals.refunded_amount,
-              0,
-            ),
-          ) || 0,
-      });
     } catch (error) {
       if (requestId !== requestIdRef.current) return;
       toast(
@@ -551,8 +796,14 @@ export default function TransactionHistory() {
   };
 
   useEffect(() => {
+    // These initial lookups populate external data for the filters.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     getAccounts();
     getProjects();
+    getCategories();
+    fetchAccountBalances();
+    // Loaders run once on mount; re-running would refetch on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -575,12 +826,9 @@ export default function TransactionHistory() {
 
   const currentPage = Math.min(page, totalPages);
   const pageRows = transactions;
-  const pageIds = pageRows.map((item) => item.uuid);
+  const pageIds = pageRows.map((item) => item.key);
   const allPageSelected =
     pageIds.length > 0 && pageIds.every((id) => selectedIds.includes(id));
-  const completedTotal = summary.completedTotal;
-  const pendingTotal = summary.pendingTotal;
-  const refundedTotal = summary.refundedTotal;
 
   // One updater for both individual state values and the filters object.
   function updateFilter(fieldOrSetter, value) {
@@ -600,6 +848,10 @@ export default function TransactionHistory() {
       plot_id: "",
       account_id: "",
       payment_method: "",
+      source_type: "",
+      kind: "",
+      direction: "",
+      channel: "",
     });
     setStatus("");
     setStartDate("");
@@ -611,6 +863,47 @@ export default function TransactionHistory() {
     setPage(1);
     setSelectedIds([]);
     setSelectedTransactions({});
+  }
+
+  async function openDetail(transaction) {
+    if (!transaction?.sourceType || !transaction?.sourceUuid) {
+      setDetail(transaction);
+      return;
+    }
+
+    const requestId = ++detailRequestRef.current;
+    setDetail(transaction);
+    setDetailError("");
+    setDetailLoading(true);
+
+    try {
+      const response = await axios.get(
+        `/api/transactions/${encodeURIComponent(transaction.sourceType)}/${encodeURIComponent(transaction.sourceUuid)}`,
+        {
+          withCredentials: true,
+          params: transaction.sourceRowId
+            ? { source_row_id: transaction.sourceRowId }
+            : undefined,
+        },
+      );
+      if (requestId !== detailRequestRef.current) return;
+      const row = response.data?.data?.transaction;
+      if (row) setDetail(normalizeTransaction(row));
+    } catch (error) {
+      if (requestId !== detailRequestRef.current) return;
+      setDetailError(
+        error.response?.data?.message || "Failed to load transaction details.",
+      );
+    } finally {
+      if (requestId === detailRequestRef.current) setDetailLoading(false);
+    }
+  }
+
+  function closeDetail() {
+    detailRequestRef.current += 1;
+    setDetail(null);
+    setDetailLoading(false);
+    setDetailError("");
   }
 
   function handleSort(column) {
@@ -629,13 +922,13 @@ export default function TransactionHistory() {
       let rows = [];
       if (mode === "selected") {
         rows = Object.values(selectedTransactions).filter((tx) =>
-          selectedIds.includes(tx.uuid),
+          selectedIds.includes(tx.key),
         );
         // Also include selected records on the currently displayed page.
         pageRows.forEach((tx) => {
           if (
-            selectedIds.includes(tx.uuid) &&
-            !rows.some((row) => row.uuid === tx.uuid)
+            selectedIds.includes(tx.key) &&
+            !rows.some((row) => row.key === tx.key)
           )
             rows.push(tx);
         });
@@ -658,31 +951,43 @@ export default function TransactionHistory() {
       }
       const headers = [
         "Transaction ID",
+        "Source",
+        "Kind",
+        "Direction",
         "Date",
-        "Customer",
+        "Party",
         "Phone",
         "Project",
         "Plot",
         "Booking",
+        "Category",
         "Account",
+        "Channel",
         "Payment method",
         "Status",
         "Amount",
-        "Received by",
+        "Reference",
+        "Recorded by",
         "Notes",
       ];
       const data = rows.map((tx) => [
         tx.number,
+        tx.sourceLabel,
+        tx.kindLabel,
+        tx.direction,
         tx.date,
-        tx.customerName,
+        tx.displayPartyName,
         tx.customerPhone,
         tx.projectName,
         tx.plotNumber,
         tx.booking,
+        tx.categoryName,
         tx.accountName,
+        tx.channel,
         tx.method,
         tx.status,
-        tx.amount,
+        tx.direction === "debit" ? -tx.amount : tx.amount,
+        tx.referenceNumber,
         tx.receivedBy,
         tx.note,
       ]);
@@ -715,7 +1020,7 @@ export default function TransactionHistory() {
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
           <p className="text-[11px] font-extrabold uppercase tracking-[0.22em] text-[#1b7a5a]">
-            Payments & collections
+            Unified finance ledger
           </p>
           <h1
             className="mt-2 text-4xl font-semibold tracking-tight sm:text-5xl"
@@ -724,17 +1029,29 @@ export default function TransactionHistory() {
             Transaction history<span style={{ color: GOLD }}>.</span>
           </h1>
           <p className="mt-2 max-w-2xl text-sm text-[#5b6b63]">
-            Search, filter, sort and export every transaction from one place.
+            Payments, booking receipts and income / expense entries in one
+            ledger, with cash and bank reported separately.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => setAddTransactionOpen(true)}
-            className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-[#0b3d2e] px-4 text-sm font-semibold text-white transition hover:bg-[#145640]"
-          >
-            <Plus size={16} /> Add transaction
-          </button>
+          {canWrite && (
+            <>
+              <button
+                type="button"
+                onClick={() => setAddTransactionOpen(true)}
+                className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-[#0b3d2e] px-4 text-sm font-semibold text-white transition hover:bg-[#145640]"
+              >
+                <Plus size={16} /> Add transaction
+              </button>
+              <button
+                type="button"
+                onClick={() => setTransferOpen(true)}
+                className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-[#dfe5dc] bg-white px-4 text-sm font-semibold hover:bg-[#f4f7f2]"
+              >
+                <ArrowLeftRight size={16} /> Transfer
+              </button>
+            </>
+          )}
           <button
             type="button"
             onClick={() => setShowFilters((value) => !value)}
@@ -742,74 +1059,49 @@ export default function TransactionHistory() {
           >
             <SlidersHorizontal size={16} /> Filters
           </button>
-          <div className="group relative">
-            <button
-              type="button"
-              className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-[#0b3d2e] px-4 text-sm font-semibold text-white hover:bg-[#145640]"
-            >
-              {exporting ? (
-                <Loader size="xs" color="#ffffff" label="Exporting..." />
-              ) : (
-                <>
-                  <Download size={16} /> Export <ChevronDown size={15} />
-                </>
-              )}
-            </button>
-            <div className="invisible absolute right-0 top-full z-40 mt-2 w-56 rounded-xl border border-[#dfe5dc] bg-white p-1.5 opacity-0 shadow-xl transition group-focus-within:visible group-focus-within:opacity-100 group-hover:visible group-hover:opacity-100">
+          {canWrite && (
+            <div className="group relative">
               <button
                 type="button"
-                onClick={() => exportCsv("filtered")}
-                disabled={exporting}
-                className="w-full rounded-lg px-3 py-2.5 text-left text-sm hover:bg-slate-50"
+                className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-[#0b3d2e] px-4 text-sm font-semibold text-white hover:bg-[#145640]"
               >
-                Export all filtered results ({total})
+                {exporting ? (
+                  <Loader size="xs" color="#ffffff" label="Exporting..." />
+                ) : (
+                  <>
+                    <Download size={16} /> Export <ChevronDown size={15} />
+                  </>
+                )}
               </button>
-              <button
-                type="button"
-                disabled={!selectedIds.length || exporting}
-                onClick={() => exportCsv("selected")}
-                className="w-full rounded-lg px-3 py-2.5 text-left text-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                Export selected rows ({selectedIds.length})
-              </button>
+              <div className="invisible absolute right-0 top-full z-40 mt-2 w-56 rounded-xl border border-[#dfe5dc] bg-white p-1.5 opacity-0 shadow-xl transition group-focus-within:visible group-focus-within:opacity-100 group-hover:visible group-hover:opacity-100">
+                <button
+                  type="button"
+                  onClick={() => exportCsv("filtered")}
+                  disabled={exporting}
+                  className="w-full rounded-lg px-3 py-2.5 text-left text-sm hover:bg-slate-50"
+                >
+                  Export all filtered results ({total})
+                </button>
+                <button
+                  type="button"
+                  disabled={!selectedIds.length || exporting}
+                  onClick={() => exportCsv("selected")}
+                  className="w-full rounded-lg px-3 py-2.5 text-left text-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Export selected rows ({selectedIds.length})
+                </button>
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        <div className="rounded-2xl border border-[#e5ebe2] bg-white p-4">
-          <p className="text-xs font-bold uppercase tracking-wider text-[#5b6b63]">
-            Completed · filtered
-          </p>
-          <p className="mt-2 text-2xl font-semibold" style={DISPLAY}>
-            {formatINR(completedTotal)}
-          </p>
-          <p className="mt-1 text-xs text-[#5b6b63]">
-            Money received from completed payments
-          </p>
-        </div>
-        <div className="rounded-2xl border border-[#e5ebe2] bg-white p-4">
-          <p className="text-xs font-bold uppercase tracking-wider text-[#5b6b63]">
-            Pending · filtered
-          </p>
-          <p className="mt-2 text-2xl font-semibold" style={DISPLAY}>
-            {formatINR(pendingTotal)}
-          </p>
-          <p className="mt-1 text-xs text-[#5b6b63]">Awaiting completion</p>
-        </div>
-        <div className="rounded-2xl border border-[#e5ebe2] bg-white p-4">
-          <p className="text-xs font-bold uppercase tracking-wider text-[#5b6b63]">
-            Refund status · filtered
-          </p>
-          <p className="mt-2 text-2xl font-semibold" style={DISPLAY}>
-            {formatINR(refundedTotal)}
-          </p>
-          <p className="mt-1 text-xs text-[#5b6b63]">
-            Payment amounts marked refunded
-          </p>
-        </div>
-      </div>
+      <FinancialSummary
+        data={balances}
+        loading={balancesLoading}
+        error={balancesError}
+        onRetry={fetchAccountBalances}
+      />
 
       <section className="overflow-visible rounded-2xl border border-[#e5ebe2] bg-white">
         <div className="space-y-4 border-b border-[#eef2ec] p-4 sm:p-5">
@@ -824,7 +1116,7 @@ export default function TransactionHistory() {
                 onChange={(event) =>
                   updateFilter(setSearch, event.target.value)
                 }
-                placeholder="Search transaction, customer, phone, plot or booking..."
+                placeholder="Search number, party, phone, plot, account or reference..."
                 className="min-h-11 w-full rounded-xl border border-[#dfe5dc] bg-white pl-10 pr-3 text-sm outline-none focus:border-[#1b7a5a]"
               />
             </div>
@@ -895,7 +1187,9 @@ export default function TransactionHistory() {
               disabled={loadingAccounts || accounts.length === 0}
               options={accounts.map((account) => ({
                 value: String(account.id),
-                label: `${account.account_name} — ${account.bank_name}`,
+                label: account.bank_name
+                  ? `${account.account_name} — ${account.bank_name}`
+                  : `${account.account_name} — Cash`,
               }))}
             />
 
@@ -904,14 +1198,14 @@ export default function TransactionHistory() {
               name="payment_method"
               label="Payment Method"
               value={filters.payment_method}
-              onChange={(value) => updateFilter("payment_method", value)}
+              onChange={(event) =>
+                updateFilter("payment_method", event.target.value)
+              }
               placeholder="All payment methods"
-              options={METHODS.filter(([value]) => value !== "All").map(
-                ([value, label]) => ({
-                  value,
-                  label,
-                }),
-              )}
+              options={METHODS.map(([value, label]) => ({
+                value,
+                label,
+              }))}
             />
           </div>
 
@@ -995,6 +1289,78 @@ export default function TransactionHistory() {
                   />
                 </div>
               </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold text-[#5b6b63]">
+                  Source
+                </label>
+                <select
+                  value={filters.source_type}
+                  onChange={(event) =>
+                    updateFilter("source_type", event.target.value)
+                  }
+                  className="min-h-11 w-full rounded-xl border border-[#dfe5dc] bg-white px-3 text-sm"
+                >
+                  {SOURCE_TYPES.map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold text-[#5b6b63]">
+                  Kind
+                </label>
+                <select
+                  value={filters.kind}
+                  onChange={(event) =>
+                    updateFilter("kind", event.target.value)
+                  }
+                  className="min-h-11 w-full rounded-xl border border-[#dfe5dc] bg-white px-3 text-sm"
+                >
+                  {KINDS.map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold text-[#5b6b63]">
+                  Direction
+                </label>
+                <select
+                  value={filters.direction}
+                  onChange={(event) =>
+                    updateFilter("direction", event.target.value)
+                  }
+                  className="min-h-11 w-full rounded-xl border border-[#dfe5dc] bg-white px-3 text-sm"
+                >
+                  {DIRECTIONS.map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold text-[#5b6b63]">
+                  Account channel
+                </label>
+                <select
+                  value={filters.channel}
+                  onChange={(event) =>
+                    updateFilter("channel", event.target.value)
+                  }
+                  className="min-h-11 w-full rounded-xl border border-[#dfe5dc] bg-white px-3 text-sm"
+                >
+                  {CHANNELS.map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <div className="flex items-end xl:col-span-4">
                 <button
                   type="button"
@@ -1006,13 +1372,16 @@ export default function TransactionHistory() {
               </div>
             </div>
           )}
-          {(loadingAccounts || loadingProjects) && (
+          {(loadingAccounts || loadingProjects || loadingCategories) && (
             <div className="flex flex-wrap gap-4">
               {loadingAccounts && (
                 <Loader size="sm" label="Loading accounts..." />
               )}
               {loadingProjects && (
                 <Loader size="sm" label="Loading projects..." />
+              )}
+              {loadingCategories && (
+                <Loader size="sm" label="Loading categories..." />
               )}
             </div>
           )}
@@ -1109,7 +1478,7 @@ export default function TransactionHistory() {
                         setSelectedTransactions((cached) => {
                           const updated = { ...cached };
                           pageRows.forEach((tx) => {
-                            if (event.target.checked) updated[tx.uuid] = tx;
+                            if (event.target.checked) updated[tx.key] = tx;
                           });
                           return updated;
                         });
@@ -1126,14 +1495,14 @@ export default function TransactionHistory() {
                   onSort={handleSort}
                 />
                 <SortableHeader
-                  label="Customer"
+                  label="Party"
                   column="customer"
                   sortBy={sortBy}
                   sortOrder={sortOrder}
                   onSort={handleSort}
                 />
-                <th className="px-4 py-3">Plot / project</th>
-                <th className="px-4 py-3">Account / method</th>
+                <th className="px-4 py-3">Plot / category</th>
+                <th className="px-4 py-3">Account / channel</th>
                 <SortableHeader
                   label="Date"
                   column="date"
@@ -1164,14 +1533,14 @@ export default function TransactionHistory() {
                 </tr>
               ) : pageRows.length ? (
                 pageRows.map((tx) => {
-                  const selected = selectedIds.includes(tx.uuid);
-                  const incoming = tx.status === "completed";
-                  const installmentProgress = getInstallmentProgress(tx);
+                  const selected = selectedIds.includes(tx.key);
+                  const incoming = tx.direction === "credit";
+                  const hasPlot = tx.plotNumber && tx.plotNumber !== "—";
                   return (
                     <tr
-                      key={tx.uuid}
+                      key={tx.key}
                       className="group cursor-pointer border-t border-[#eef2ec] transition hover:bg-[#f8faf6]"
-                      onClick={() => setDetail(tx)}
+                      onClick={() => openDetail(tx)}
                     >
                       <td
                         className="px-4 py-4"
@@ -1184,11 +1553,11 @@ export default function TransactionHistory() {
                           onChange={(event) =>
                             setSelectedIds((current) => {
                               const next = event.target.checked
-                                ? [...new Set([...current, tx.uuid])]
-                                : current.filter((id) => id !== tx.uuid);
+                                ? [...new Set([...current, tx.key])]
+                                : current.filter((id) => id !== tx.key);
                               setSelectedTransactions((cached) => ({
                                 ...cached,
-                                [tx.uuid]: tx,
+                                [tx.key]: tx,
                               }));
                               return next;
                             })
@@ -1198,7 +1567,7 @@ export default function TransactionHistory() {
                       <td className="px-4 py-4">
                         <div className="flex items-center gap-3">
                           <span
-                            className={`grid h-10 w-10 shrink-0 place-items-center rounded-full ${incoming ? "bg-[#e9f3ee] text-[#1b7a5a]" : "bg-slate-100 text-slate-600"}`}
+                            className={`grid h-10 w-10 shrink-0 place-items-center rounded-full ${incoming ? "bg-[#e9f3ee] text-[#1b7a5a]" : "bg-rose-50 text-rose-600"}`}
                           >
                             {incoming ? (
                               <ArrowDownLeft size={18} />
@@ -1206,47 +1575,72 @@ export default function TransactionHistory() {
                               <ArrowUpRight size={18} />
                             )}
                           </span>
-                          <div>
+                          <div className="min-w-0">
                             <p className="font-bold text-[#14231d]">
                               {tx.number}
                             </p>
+                            <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                              <KindBadge kind={tx.kind} />
+                              <span className="text-[10px] font-semibold uppercase tracking-wide text-[#839087]">
+                                {tx.sourceLabel}
+                              </span>
+                            </div>
+                            {tx.kind === "installment" &&
+                              tx.installmentNumber && (
+                                <p className="mt-1 text-xs text-[#839087]">
+                                  Installment {tx.installmentNumber}
+                                  {tx.installmentCount
+                                    ? ` of ${tx.installmentCount}`
+                                    : ""}
+                                </p>
+                              )}
                             {tx.note && (
                               <p className="mt-1 max-w-[170px] truncate text-xs text-[#839087]">
                                 {tx.note}
                               </p>
                             )}
-                            <InstallmentProgress
-                              progress={installmentProgress}
-                            />
                           </div>
                         </div>
                       </td>
                       <td
-                        onClick={() => {
+                        onClick={(event) => {
+                          if (!tx.customerUuid) return;
+                          event.stopPropagation();
                           navigate("/customer/profile", {
                             state: {
-                              uuid: tx.uuid,
+                              uuid: tx.customerUuid,
                             },
                           });
                         }}
-                        className="px-4 py-4 cursor-pointer"
+                        className={
+                          tx.customerUuid
+                            ? "cursor-pointer px-4 py-4"
+                            : "px-4 py-4"
+                        }
                       >
                         <p className="font-semibold">
-                          {tx.customerName || "—"}
+                          {tx.displayPartyName || "—"}
                         </p>
                         <p className="mt-1 text-xs text-[#839087]">
-                          {tx.customerPhone || "—"}
+                          {tx.customerPhone || tx.categoryName || "—"}
                         </p>
                       </td>
                       <td className="px-4 py-4">
-                        <p className="font-semibold">{tx.plotNumber || "—"}</p>
+                        <p className="font-semibold">
+                          {hasPlot ? tx.plotNumber : tx.categoryName || "—"}
+                        </p>
                         <p className="mt-1 text-xs text-[#839087]">
-                          {tx.projectName || "—"} · {tx.booking}
+                          {hasPlot
+                            ? `${tx.projectName || "—"} · ${tx.booking}`
+                            : tx.partyName
+                              ? `Party: ${tx.partyName}`
+                              : tx.sourceLabel}
                         </p>
                       </td>
                       <td className="px-4 py-4">
                         <p className="font-semibold">{tx.accountName || "—"}</p>
                         <p className="mt-1 text-xs capitalize text-[#839087]">
+                          {tx.channel ? `${tx.channel} · ` : ""}
                           {String(tx.method || "other").replaceAll("_", " ")}
                         </p>
                       </td>
@@ -1255,14 +1649,19 @@ export default function TransactionHistory() {
                       </td>
                       <td className="whitespace-nowrap px-4 py-4">
                         <p
-                          className={`font-bold ${incoming ? "text-emerald-700" : "text-[#14231d]"}`}
+                          className={`font-bold ${incoming ? "text-emerald-700" : "text-rose-700"}`}
                         >
-                          {incoming ? "+" : ""}
+                          {incoming ? "+" : "-"}
                           {formatINR(tx.amount)}
                         </p>
                       </td>
                       <td className="px-4 py-4">
                         <StatusBadge status={tx.status} />
+                        {!tx.countsAsBalance && (
+                          <p className="mt-1 text-[10px] font-semibold text-[#839087]">
+                            Not in balance
+                          </p>
+                        )}
                       </td>
                     </tr>
                   );
@@ -1390,22 +1789,25 @@ export default function TransactionHistory() {
               New transaction
             </p>
             <p className="mt-1 text-sm text-[#426b56]">
-              Select the party, category and account, then enter the amount.
+              Select a party (optional), category and account, then enter the
+              amount.
             </p>
           </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <SearchablePartySelect
-              apiUrl="/api/parties"
+              apiUrl="/api/parties/dropdown"
               name="party_id"
-              label="Customer"
-              // value={formData.party_id}
-              onChange={(e) =>
-                setFormData((prev) => ({
-                  ...prev,
-                  party_id: e.target.value,
+              label="Party"
+              value={newTransaction.party_id}
+              onChange={(event) =>
+                setNewTransaction((current) => ({
+                  ...current,
+                  party_id: event.target.value,
                 }))
               }
+              placeholder="Select a party"
+              disabled={savingTransaction}
             />
             <Select
               label="Transaction type"
@@ -1435,9 +1837,12 @@ export default function TransactionHistory() {
                 }))
               }
               placeholder="Select category"
-              options={STATIC_CATEGORIES}
+              options={categories.map((category) => ({
+                value: String(category.id),
+                label: category.name,
+              }))}
               required
-              disabled={savingTransaction}
+              disabled={savingTransaction || loadingCategories}
             />
             <Input
               label="Amount (₹)"
@@ -1456,33 +1861,39 @@ export default function TransactionHistory() {
               required
               disabled={savingTransaction}
             />
-            <Select
-              label="Account"
-              name="account_id"
-              value={newTransaction.account_id}
-              onChange={(event) =>
-                setNewTransaction((current) => ({
-                  ...current,
-                  account_id: event.target.value,
-                }))
-              }
-              placeholder="Select account"
-              options={STATIC_ACCOUNTS}
-              required
+            <PaymentAccountFields
+              paymentMethod={newTransaction.payment_method}
+              accountId={newTransaction.account_id}
+              accounts={accounts}
+              loadingAccounts={loadingAccounts}
               disabled={savingTransaction}
+              onMethodChange={(value) =>
+                setNewTransaction((current) => ({
+                  ...current,
+                  payment_method: value,
+                  account_id: "",
+                }))
+              }
+              onAccountChange={(value) =>
+                setNewTransaction((current) => ({
+                  ...current,
+                  account_id: value,
+                }))
+              }
+              accountLabelText="Receiving / paying bank account"
             />
-            <Select
-              label="Payment method"
-              name="payment_method"
-              value={newTransaction.payment_method}
+            <Input
+              wrapperClassName="sm:col-span-2"
+              label="Reference number (optional)"
+              name="reference_number"
+              value={newTransaction.reference_number}
               onChange={(event) =>
                 setNewTransaction((current) => ({
                   ...current,
-                  payment_method: event.target.value,
+                  reference_number: event.target.value,
                 }))
               }
-              options={METHODS.map(([value, label]) => ({ value, label }))}
-              required
+              placeholder="UPI / cheque / transfer reference"
               disabled={savingTransaction}
             />
             <Input
@@ -1528,24 +1939,344 @@ export default function TransactionHistory() {
         </form>
       </Modal>
 
+      <Modal
+        open={transferOpen}
+        onClose={() => {
+          if (savingTransfer) return;
+          setTransferOpen(false);
+        }}
+        size="lg"
+        title="Transfer between accounts"
+        description="Move money between cash and bank accounts. Transfers affect balances but are excluded from inflow and outflow."
+        footer={
+          <div className="flex w-full flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+            <Button
+              variant="secondary"
+              disabled={savingTransfer}
+              onClick={() => setTransferOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={savingTransfer}
+              onClick={() =>
+                document.getElementById("transfer-form")?.requestSubmit()
+              }
+            >
+              {savingTransfer ? (
+                <Loader
+                  size="xs"
+                  variant="spinner"
+                  color="#ffffff"
+                  label="Saving..."
+                />
+              ) : (
+                <ArrowLeftRight size={16} className="mr-2" />
+              )}
+              {savingTransfer ? "Recording transfer..." : "Record transfer"}
+            </Button>
+          </div>
+        }
+      >
+        <form
+          id="transfer-form"
+          onSubmit={handleTransfer}
+          className="space-y-5"
+        >
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Select
+              label="From account"
+              name="from_account_id"
+              value={transferForm.from_account_id}
+              onChange={(event) =>
+                setTransferForm((current) => ({
+                  ...current,
+                  from_account_id: event.target.value,
+                }))
+              }
+              placeholder="Select source account"
+              options={accounts
+                .filter((account) => account.is_active !== false)
+                .map((account) => ({
+                  value: String(account.id),
+                  label: account.bank_name
+                    ? `${account.account_name} — ${account.bank_name}`
+                    : `${account.account_name} — Cash`,
+                }))}
+              required
+              disabled={savingTransfer || loadingAccounts}
+            />
+            <Select
+              label="To account"
+              name="to_account_id"
+              value={transferForm.to_account_id}
+              onChange={(event) =>
+                setTransferForm((current) => ({
+                  ...current,
+                  to_account_id: event.target.value,
+                }))
+              }
+              placeholder="Select destination account"
+              options={accounts
+                .filter((account) => account.is_active !== false)
+                .map((account) => ({
+                  value: String(account.id),
+                  label: account.bank_name
+                    ? `${account.account_name} — ${account.bank_name}`
+                    : `${account.account_name} — Cash`,
+                }))}
+              required
+              disabled={savingTransfer || loadingAccounts}
+            />
+            <Input
+              label="Amount (₹)"
+              name="amount"
+              type="number"
+              min="0.01"
+              step="0.01"
+              value={transferForm.amount}
+              onChange={(event) =>
+                setTransferForm((current) => ({
+                  ...current,
+                  amount: event.target.value,
+                }))
+              }
+              placeholder="Enter transfer amount"
+              required
+              disabled={savingTransfer}
+            />
+            <Input
+              label="Transfer date"
+              name="transfer_date"
+              type="date"
+              value={transferForm.transfer_date}
+              onChange={(event) =>
+                setTransferForm((current) => ({
+                  ...current,
+                  transfer_date: event.target.value,
+                }))
+              }
+              disabled={savingTransfer}
+            />
+            <Input
+              wrapperClassName="sm:col-span-2"
+              label="Reference number (optional)"
+              name="reference_number"
+              value={transferForm.reference_number}
+              onChange={(event) =>
+                setTransferForm((current) => ({
+                  ...current,
+                  reference_number: event.target.value,
+                }))
+              }
+              placeholder="Cheque / UPI / transfer reference"
+              disabled={savingTransfer}
+            />
+          </div>
+
+          <div>
+            <label
+              htmlFor="transfer-notes"
+              className="mb-2 block text-sm font-semibold text-[#14231d]"
+            >
+              Notes{" "}
+              <span className="font-normal text-[#89958d]">(optional)</span>
+            </label>
+            <textarea
+              id="transfer-notes"
+              name="notes"
+              rows={3}
+              value={transferForm.notes}
+              onChange={(event) =>
+                setTransferForm((current) => ({
+                  ...current,
+                  notes: event.target.value,
+                }))
+              }
+              disabled={savingTransfer}
+              placeholder="Add a note about this transfer..."
+              className="w-full resize-y rounded-xl border border-[#dfe5dc] bg-white px-3.5 py-3 text-sm text-[#14231d] outline-none transition placeholder:text-[#9aa59d] focus:border-[#1b7a5a] focus:ring-4 focus:ring-[#1b7a5a]/10 disabled:bg-slate-50"
+            />
+          </div>
+
+          <div className="rounded-xl border border-[#e3e9e0] bg-[#f7f9f6] p-4 text-xs leading-5 text-[#5b6b63]">
+            Both accounts must be active. The transfer is recorded as a debit
+            from the source account and a credit to the destination account.
+          </div>
+        </form>
+      </Modal>
+
+      <Modal
+        open={Boolean(refundTransaction)}
+        onClose={closeRefundModal}
+        size="lg"
+        title="Refund payment"
+        description="Refunds are recorded separately and never edit or delete the original receipt."
+        footer={
+          <div className="flex w-full flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+            <Button
+              variant="secondary"
+              disabled={savingRefund}
+              onClick={closeRefundModal}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              disabled={savingRefund}
+              onClick={() =>
+                document.getElementById("refund-payment-form")?.requestSubmit()
+              }
+            >
+              {savingRefund ? (
+                <Loader
+                  size="xs"
+                  variant="spinner"
+                  color="#ffffff"
+                  label="Saving..."
+                />
+              ) : (
+                <RotateCcw size={16} className="mr-2" />
+              )}
+              {savingRefund ? "Recording refund..." : "Record refund"}
+            </Button>
+          </div>
+        }
+      >
+        {refundTransaction && (
+          <form
+            id="refund-payment-form"
+            onSubmit={handleRefund}
+            className="space-y-5"
+          >
+            <div className="rounded-xl border border-[#e3e9e0] bg-[#f7f9f6] p-4">
+              <p className="text-xs font-medium uppercase tracking-wider text-[#718078]">
+                Original payment
+              </p>
+              <p className="mt-1 text-base font-bold text-[#14231d]">
+                {refundTransaction.number}
+              </p>
+              <p className="mt-1 text-sm text-[#5b6b63]">
+                {refundTransaction.displayPartyName || "—"} ·{" "}
+                {formatINR(refundTransaction.amount)} ·{" "}
+                {formatDateTime(refundTransaction.date)}
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Input
+                label="Refund amount (₹)"
+                name="amount"
+                type="number"
+                min="0.01"
+                step="0.01"
+                max={Number(refundTransaction.amount)}
+                value={refundForm.amount}
+                onChange={(event) =>
+                  setRefundForm((current) => ({
+                    ...current,
+                    amount: event.target.value,
+                  }))
+                }
+                placeholder="Enter refund amount"
+                hint="Cannot exceed the original amount less any prior refunds."
+                required
+                disabled={savingRefund}
+              />
+              <Input
+                label="Refund date"
+                name="refund_date"
+                type="date"
+                value={refundForm.refund_date}
+                onChange={(event) =>
+                  setRefundForm((current) => ({
+                    ...current,
+                    refund_date: event.target.value,
+                  }))
+                }
+                disabled={savingRefund}
+              />
+              <PaymentAccountFields
+                paymentMethod={refundForm.payment_method}
+                accountId={refundForm.account_id}
+                accounts={accounts}
+                loadingAccounts={loadingAccounts}
+                disabled={savingRefund}
+                onMethodChange={(value) =>
+                  setRefundForm((current) => ({
+                    ...current,
+                    payment_method: value,
+                    account_id: "",
+                  }))
+                }
+                onAccountChange={(value) =>
+                  setRefundForm((current) => ({ ...current, account_id: value }))
+                }
+                methodLabel="Refund method"
+                accountLabelText="Refund from bank account"
+                cashHint="Cash refunds are paid out of the Cash in Hand account."
+              />
+              <Input
+                label="Reference number (optional)"
+                name="reference_number"
+                value={refundForm.reference_number}
+                onChange={(event) =>
+                  setRefundForm((current) => ({
+                    ...current,
+                    reference_number: event.target.value,
+                  }))
+                }
+                placeholder="UPI / cheque / transfer reference"
+                disabled={savingRefund}
+              />
+            </div>
+
+            <div>
+              <label
+                htmlFor="refund-reason"
+                className="mb-2 block text-sm font-semibold text-[#14231d]"
+              >
+                Refund reason
+              </label>
+              <textarea
+                id="refund-reason"
+                name="reason"
+                rows={3}
+                value={refundForm.reason}
+                onChange={(event) =>
+                  setRefundForm((current) => ({
+                    ...current,
+                    reason: event.target.value,
+                  }))
+                }
+                disabled={savingRefund}
+                placeholder="Why is this payment being refunded?"
+                required
+                className="w-full resize-y rounded-xl border border-[#dfe5dc] bg-white px-3.5 py-3 text-sm text-[#14231d] outline-none transition placeholder:text-[#9aa59d] focus:border-[#1b7a5a] focus:ring-4 focus:ring-[#1b7a5a]/10 disabled:bg-slate-50"
+              />
+            </div>
+          </form>
+        )}
+      </Modal>
+
       {detail && (
         <div
           className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/40 p-4"
           role="presentation"
           onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setDetail(null);
+            if (event.target === event.currentTarget) closeDetail();
           }}
         >
           <section
             role="dialog"
             aria-modal="true"
             aria-labelledby="transaction-detail-title"
-            className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-2xl sm:p-6"
+            className="max-h-[88vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl sm:p-6"
           >
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-xs font-bold uppercase tracking-wider text-[#1b7a5a]">
-                  Transaction details
+                  {detail.sourceLabel || "Transaction details"}
                 </p>
                 <h2
                   id="transaction-detail-title"
@@ -1557,7 +2288,7 @@ export default function TransactionHistory() {
               </div>
               <button
                 type="button"
-                onClick={() => setDetail(null)}
+                onClick={closeDetail}
                 aria-label="Close details"
                 className="rounded-lg p-2 hover:bg-slate-100"
               >
@@ -1566,42 +2297,103 @@ export default function TransactionHistory() {
             </div>
             <div className="mt-5 rounded-xl bg-[#f4f7f2] p-4">
               <p className="text-xs text-[#5b6b63]">Transaction amount</p>
-              <p className="mt-1 text-3xl font-semibold" style={DISPLAY}>
+              <p
+                className={`mt-1 text-3xl font-semibold ${detail.direction === "debit" ? "text-rose-700" : "text-[#0b3d2e]"}`}
+                style={DISPLAY}
+              >
+                {detail.direction === "debit" ? "-" : "+"}
                 {formatINR(detail.amount)}
               </p>
-              <div className="mt-3">
+              <div className="mt-3 flex flex-wrap items-center gap-2">
                 <StatusBadge status={detail.status} />
+                <KindBadge kind={detail.kind} />
+                <span className="text-xs font-semibold text-[#5b6b63]">
+                  {detail.direction === "debit"
+                    ? "Money out"
+                    : "Money in"}
+                </span>
               </div>
             </div>
+
+            {detailLoading && (
+              <div className="mt-4 rounded-xl border border-[#e5ebe2] px-4 py-3">
+                <Loader size="sm" label="Loading full details..." />
+              </div>
+            )}
+
+            {detailError && (
+              <p className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                {detailError}
+              </p>
+            )}
+
             <dl className="mt-4 divide-y divide-[#eef2ec] text-sm">
               {[
-                ["Customer", detail.customerName],
+                ["Kind", detail.kindLabel],
+                ["Party", detail.partyName || detail.customerName],
                 ["Phone", detail.customerPhone],
+                ["Category", detail.categoryName],
                 ["Project", detail.projectName],
                 ["Plot", detail.plotNumber],
                 ["Booking", detail.booking],
-                ["Account", detail.accountName],
+                [
+                  "Installment",
+                  detail.kind === "installment" && detail.installmentNumber
+                    ? `${detail.installmentNumber}${detail.installmentCount ? ` of ${detail.installmentCount}` : ""}`
+                    : "",
+                ],
+                [
+                  "Account",
+                  detail.bankName
+                    ? `${detail.accountName} · ${detail.bankName}`
+                    : detail.accountName,
+                ],
+                [
+                  "Channel",
+                  detail.channel
+                    ? String(detail.channel).replaceAll("_", " ")
+                    : "",
+                ],
                 [
                   "Payment method",
                   String(detail.method || "other").replaceAll("_", " "),
                 ],
-                ["Date", formatDate(detail.date)],
-                ["Received by", detail.receivedBy],
+                ["Reference", detail.referenceNumber],
+                ["Date", formatDateTime(detail.date)],
+                ["Recorded by", detail.receivedBy],
+                ["Created", formatDateTime(detail.createdAt)],
+                ["Updated", formatDateTime(detail.updatedAt)],
                 ["Notes", detail.note],
-              ].map(([label, value]) => (
-                <div key={label} className="flex justify-between gap-4 py-3">
-                  <dt className="text-[#5b6b63]">{label}</dt>
-                  <dd className="max-w-[65%] text-right font-semibold capitalize">
-                    {value || "—"}
-                  </dd>
-                </div>
-              ))}
+              ]
+                .filter(([, value]) => value && value !== "—")
+                .map(([label, value]) => (
+                  <div key={label} className="flex justify-between gap-4 py-3">
+                    <dt className="shrink-0 text-[#5b6b63]">{label}</dt>
+                    <dd className="max-w-[65%] break-words text-right font-semibold capitalize">
+                      {value}
+                    </dd>
+                  </div>
+                ))}
             </dl>
+
+            {canRefund &&
+              detail.sourceType === "payment" &&
+              ["completed", "partially_refunded"].includes(detail.status) && (
+                <div className="mt-5 flex justify-end border-t border-[#eef2ec] pt-4">
+                  <Button
+                    variant="danger"
+                    onClick={() => openRefundModal(detail)}
+                  >
+                    <RotateCcw size={15} className="mr-2" />
+                    Refund payment
+                  </Button>
+                </div>
+              )}
           </section>
         </div>
       )}
       <p className="text-center text-xs text-[#839087]">
-        Transaction history is loaded from your payments API.
+        Unified ledger from payments and income / expense transactions.
       </p>
     </div>
   );

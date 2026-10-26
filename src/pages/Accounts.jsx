@@ -30,7 +30,170 @@ const normalize = (value) =>
 const EMPTY_FORM = {
   account_name: "",
   bank_name: "",
+  opening_balance: "",
 };
+
+const money = (amount) =>
+  new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 2,
+  }).format(Number(amount ?? 0));
+
+const isCashAccount = (account) => account?.account_type === "cash";
+
+const sortAccounts = (list) =>
+  [...list].sort((a, b) => {
+    const aCash = isCashAccount(a);
+    const bCash = isCashAccount(b);
+
+    if (aCash !== bCash) {
+      return aCash ? -1 : 1;
+    }
+
+    return String(a.account_name || "").localeCompare(
+      String(b.account_name || ""),
+      undefined,
+      { sensitivity: "base" },
+    );
+  });
+
+function CashAccountCard({ account, onEdit, onOpen }) {
+  return (
+    <article className="group relative overflow-hidden rounded-2xl bg-[#142d24] p-5 text-white shadow-sm">
+      <div className="pointer-events-none absolute -right-6 -top-8 h-32 w-32 rounded-full border border-white/10" />
+      <div className="pointer-events-none absolute -right-2 -top-3 h-20 w-20 rounded-full border border-white/10" />
+
+      <div className="relative flex items-start justify-between gap-3">
+        <span className="grid h-12 w-12 place-items-center rounded-2xl border border-white/10 bg-white/10 text-[#e4c48a]">
+          <Wallet size={22} />
+        </span>
+
+        <button
+          type="button"
+          onClick={() => onEdit(account)}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-white/15 px-3 py-2 text-xs font-bold text-white/75 transition hover:border-[#e4c48a]/50 hover:bg-white/10 hover:text-white"
+          aria-label={`Edit ${account.account_name}`}
+        >
+          <Pencil size={13} />
+          Edit
+        </button>
+      </div>
+
+      <div className="relative mt-5">
+        <div className="flex items-center gap-2">
+          <span className="rounded-md bg-[#e4c48a]/15 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider text-[#e4c48a]">
+            Cash
+          </span>
+          <span className="text-[10px] font-bold uppercase tracking-wider text-white/45">
+            Physical till
+          </span>
+        </div>
+
+        <h3 className="mt-2 break-words text-xl font-semibold" style={DISPLAY}>
+          {account.account_name}
+        </h3>
+
+        <div className="mt-5 flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/5 p-3.5">
+          <div className="min-w-0">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-white/50">
+              Opening balance
+            </p>
+            <p className="mt-0.5 truncate text-lg font-semibold" style={DISPLAY}>
+              {money(account.opening_balance)}
+            </p>
+          </div>
+
+          <Wallet size={18} className="shrink-0 text-[#e4c48a]" />
+        </div>
+      </div>
+
+      <div className="relative mt-4 flex items-center justify-between border-t border-white/10 pt-3">
+        <span className="font-mono text-xs font-semibold text-white/55">
+          #{account.id}
+        </span>
+
+        <button
+          type="button"
+          onClick={() => onOpen(account)}
+          className="inline-flex items-center gap-1 text-xs font-bold text-[#e4c48a] transition hover:text-white"
+        >
+          View history
+          <ArrowUpRight size={14} />
+        </button>
+      </div>
+    </article>
+  );
+}
+
+function BankAccountCard({ account, onEdit, onOpen }) {
+  return (
+    <article className="group flex h-full flex-col rounded-2xl border border-[#e3e9e0] bg-white p-5 shadow-sm shadow-[#062a20]/[0.03] transition hover:-translate-y-0.5 hover:border-[#c8d9ce] hover:shadow-md">
+      <div className="flex items-start justify-between gap-3">
+        <span className="grid h-12 w-12 place-items-center rounded-2xl bg-[#e9f3ee] text-[#1b7a5a] transition group-hover:bg-[#1b7a5a] group-hover:text-white">
+          <Landmark size={22} />
+        </span>
+
+        <button
+          type="button"
+          onClick={() => onEdit(account)}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-[#e3e9e0] px-3 py-2 text-xs font-bold text-[#52665b] transition hover:border-[#b7d4c2] hover:bg-[#e9f3ee] hover:text-[#1b7a5a]"
+          aria-label={`Edit ${account.account_name}`}
+        >
+          <Pencil size={13} />
+          Edit
+        </button>
+      </div>
+
+      <div className="mt-5 flex-1">
+        <span className="rounded-md bg-[#eef2ec] px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider text-[#52665b]">
+          Bank
+        </span>
+
+        <h3
+          className="mt-2 break-words text-xl font-semibold text-[#14231d]"
+          style={DISPLAY}
+        >
+          {account.account_name}
+        </h3>
+
+        <div className="mt-4 flex items-center gap-3 rounded-xl border border-[#eef2ec] bg-[#fafbf8] p-3.5">
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white text-[#1b7a5a] shadow-sm">
+            <Building2 size={17} />
+          </span>
+          <div className="min-w-0">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-[#829087]">
+              Bank
+            </p>
+            <p className="mt-0.5 truncate text-sm font-semibold text-[#263a30]">
+              {account.bank_name}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-4 flex items-end justify-between gap-3 border-t border-[#eef2ec] pt-3">
+        <div className="min-w-0">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-[#829087]">
+            Opening balance
+          </p>
+          <p className="mt-0.5 truncate text-sm font-semibold text-[#14231d]">
+            {money(account.opening_balance)}
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => onOpen(account)}
+          className="inline-flex shrink-0 items-center gap-1 text-xs font-bold text-[#1b7a5a] transition hover:text-[#14231d]"
+        >
+          View history
+          <ArrowUpRight size={14} />
+        </button>
+      </div>
+    </article>
+  );
+}
 
 export default function Accounts() {
   const [accounts, setAccounts] = useState([]);
@@ -83,12 +246,45 @@ export default function Accounts() {
   const filteredAccounts = useMemo(() => {
     const query = normalize(search);
 
+    if (!query) {
+      return accounts;
+    }
+
     return accounts.filter((account) =>
-      [account.account_name, account.bank_name].some((value) =>
-        normalize(value).includes(query),
-      ),
+      [
+        account.account_name,
+        account.bank_name,
+        account.account_type,
+        account.opening_balance,
+      ].some((value) => normalize(value).includes(query)),
     );
   }, [accounts, search]);
+
+  const cashAccounts = useMemo(
+    () => filteredAccounts.filter((account) => isCashAccount(account)),
+    [filteredAccounts],
+  );
+
+  const bankAccounts = useMemo(
+    () => filteredAccounts.filter((account) => !isCashAccount(account)),
+    [filteredAccounts],
+  );
+
+  const bankAccountCount = useMemo(
+    () => accounts.filter((account) => !isCashAccount(account)).length,
+    [accounts],
+  );
+
+  const distinctBankCount = useMemo(
+    () =>
+      new Set(
+        accounts
+          .filter((account) => !isCashAccount(account))
+          .map((account) => normalize(account.bank_name))
+          .filter(Boolean),
+      ).size,
+    [accounts],
+  );
 
   const openCreateForm = () => {
     setEditingAccount(null);
@@ -103,6 +299,11 @@ export default function Accounts() {
     setForm({
       account_name: account.account_name || "",
       bank_name: account.bank_name || "",
+      opening_balance:
+        account.opening_balance === null ||
+        account.opening_balance === undefined
+          ? ""
+          : String(account.opening_balance),
     });
     setFormError("");
     setSuccess("");
@@ -135,17 +336,49 @@ export default function Accounts() {
     setSuccess("");
 
     const accountName = form.account_name.trim();
-    const bankName = form.bank_name.trim();
+    const editingCash = Boolean(editingAccount && isCashAccount(editingAccount));
+    const bankName = editingCash ? null : form.bank_name.trim();
+    const openingBalanceInput = form.opening_balance.trim();
+    const openingBalance = openingBalanceInput
+      ? Number(openingBalanceInput)
+      : 0;
 
-    if (!accountName || !bankName) {
-      setFormError("Account name and bank name are required.");
+    if (!accountName) {
+      setFormError("Account name is required.");
       return;
     }
 
-    if (accountName.length > 100 || bankName.length > 100) {
-      setFormError("Each field must be 100 characters or fewer.");
+    if (accountName.length > 100) {
+      setFormError("Account name must be 100 characters or fewer.");
       return;
     }
+
+    if (!editingCash) {
+      if (!bankName) {
+        setFormError("Bank name is required for bank accounts.");
+        return;
+      }
+
+      if (bankName.length > 100) {
+        setFormError("Bank name must be 100 characters or fewer.");
+        return;
+      }
+    }
+
+    if (
+      !Number.isFinite(openingBalance) ||
+      openingBalance < 0 ||
+      openingBalance > 999999999999.99
+    ) {
+      setFormError("Opening balance must be a non-negative amount.");
+      return;
+    }
+
+    const payload = {
+      account_name: accountName,
+      bank_name: bankName,
+      opening_balance: openingBalance,
+    };
 
     setSaving(true);
 
@@ -153,10 +386,7 @@ export default function Accounts() {
       if (editingAccount) {
         const response = await axios.put(
           `/api/accounts/${editingAccount.id}`,
-          {
-            account_name: accountName,
-            bank_name: bankName,
-          },
+          payload,
           { withCredentials: true },
         );
 
@@ -167,8 +397,10 @@ export default function Accounts() {
         }
 
         setAccounts((current) =>
-          current.map((account) =>
-            account.id === editingAccount.id ? updatedAccount : account,
+          sortAccounts(
+            current.map((account) =>
+              account.id === editingAccount.id ? updatedAccount : account,
+            ),
           ),
         );
 
@@ -176,10 +408,7 @@ export default function Accounts() {
       } else {
         const response = await axios.post(
           "/api/accounts/create",
-          {
-            account_name: accountName,
-            bank_name: bankName,
-          },
+          payload,
           { withCredentials: true },
         );
 
@@ -189,7 +418,7 @@ export default function Accounts() {
           throw new Error("Invalid response received from the server.");
         }
 
-        setAccounts((current) => [...current, newAccount]);
+        setAccounts((current) => sortAccounts([...current, newAccount]));
         setSuccess("Account created successfully.");
       }
 
@@ -210,6 +439,8 @@ export default function Accounts() {
     }
   };
 
+  const isEditingCash = Boolean(editingAccount && isCashAccount(editingAccount));
+
   return (
     <div className="min-h-full space-y-7 bg-[#fafbf8] p-4 sm:p-6 lg:p-8">
       <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
@@ -226,7 +457,7 @@ export default function Accounts() {
           </h1>
 
           <p className="mt-2 text-sm text-[#718078]">
-            Manage your bank accounts and payment destinations.
+            Manage the cash and bank accounts used as payment destinations.
           </p>
         </div>
 
@@ -250,7 +481,7 @@ export default function Accounts() {
                 {accounts.length}
               </p>
               <p className="mt-2 text-xs text-white/55">
-                Registered payment destinations
+                Cash and bank payment destinations
               </p>
             </div>
 
@@ -269,19 +500,18 @@ export default function Accounts() {
           <div className="flex items-start justify-between">
             <div>
               <p className="text-xs font-medium text-[#718078]">
-                Banks represented
+                Bank accounts
               </p>
               <p
                 className="mt-3 text-4xl font-semibold text-[#14231d]"
                 style={DISPLAY}
               >
-                {
-                  new Set(
-                    accounts.map((account) => normalize(account.bank_name)),
-                  ).size
-                }
+                {bankAccountCount}
               </p>
-              <p className="mt-2 text-xs text-[#829087]">Distinct bank names</p>
+              <p className="mt-2 text-xs text-[#829087]">
+                {distinctBankCount}{" "}
+                {distinctBankCount === 1 ? "distinct bank" : "distinct banks"}
+              </p>
             </div>
 
             <span className="rounded-xl bg-[#e9f3ee] p-3 text-[#1b7a5a]">
@@ -291,7 +521,7 @@ export default function Accounts() {
 
           <div className="mt-5 flex items-center gap-2 border-t border-[#eef2ec] pt-4 text-xs text-[#718078]">
             <ArrowUpRight size={15} className="text-[#1b7a5a]" />
-            Across your account directory
+            Across your bank directory
           </div>
         </div>
       </section>
@@ -363,10 +593,10 @@ export default function Accounts() {
               className="text-xl font-semibold text-[#14231d]"
               style={DISPLAY}
             >
-              All accounts
+              Account directory
             </h2>
             <p className="mt-1 text-xs text-[#718078]">
-              Manage the accounts available for recording payments.
+              Cash is listed first, followed by every bank account.
             </p>
           </div>
 
@@ -407,74 +637,62 @@ export default function Accounts() {
             </div>
           </div>
         ) : filteredAccounts.length > 0 ? (
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {filteredAccounts.map((account) => (
-              <article
-                key={account.uuid || account.id}
-                className="group rounded-2xl border border-[#e3e9e0] bg-white p-5 shadow-sm shadow-[#062a20]/[0.03] transition hover:-translate-y-0.5 hover:border-[#c8d9ce] hover:shadow-md"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <span className="grid h-12 w-12 place-items-center rounded-2xl bg-[#e9f3ee] text-[#1b7a5a] transition group-hover:bg-[#1b7a5a] group-hover:text-white">
-                    <Landmark size={22} />
+          <div className="space-y-7">
+            {cashAccounts.length > 0 && (
+              <div>
+                <div className="mb-3 flex items-center gap-2">
+                  <p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-[#829087]">
+                    Cash account
+                  </p>
+                  <span className="rounded-md bg-[#f7efdc] px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider text-[#8a6a2f]">
+                    One active till
                   </span>
-
-                  <button
-                    type="button"
-                    onClick={() => openEditForm(account)}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-[#e3e9e0] px-3 py-2 text-xs font-bold text-[#52665b] transition hover:border-[#b7d4c2] hover:bg-[#e9f3ee] hover:text-[#1b7a5a]"
-                    aria-label={`Edit ${account.account_name}`}
-                  >
-                    <Pencil size={13} />
-                    Edit
-                  </button>
                 </div>
-                <div
-                  onClick={() => {
-                    console.log(account);
-                    navigate("/admin/history", {
-                      state: {
-                        uuid: account.uuid,
-                      },
-                    });
-                  }}
-                >
-                  <div className="mt-5">
-                    <p className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-[#829087]">
-                      Account name
-                    </p>
-                    <h3
-                      className="mt-1 break-words text-xl font-semibold text-[#14231d]"
-                      style={DISPLAY}
-                    >
-                      {account.account_name}
-                    </h3>
-                  </div>
 
-                  <div className="mt-5 flex items-center gap-3 rounded-xl border border-[#eef2ec] bg-[#fafbf8] p-3.5">
-                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white text-[#1b7a5a] shadow-sm">
-                      <Building2 size={17} />
-                    </span>
-                    <div className="min-w-0">
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-[#829087]">
-                        Bank
-                      </p>
-                      <p className="mt-0.5 truncate text-sm font-semibold text-[#263a30]">
-                        {account.bank_name}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 flex items-center justify-between border-t border-[#eef2ec] pt-3">
-                    <span className="text-[11px] text-[#829087]">
-                      Account reference
-                    </span>
-                    <span className="font-mono text-xs font-semibold text-[#52665b]">
-                      #{account.id}
-                    </span>
-                  </div>
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                  {cashAccounts.map((account) => (
+                    <CashAccountCard
+                      key={account.uuid || account.id}
+                      account={account}
+                      onEdit={openEditForm}
+                      onOpen={(item) =>
+                        navigate("/admin/history", {
+                          state: { uuid: item.uuid },
+                        })
+                      }
+                    />
+                  ))}
                 </div>
-              </article>
-            ))}
+              </div>
+            )}
+
+            {bankAccounts.length > 0 && (
+              <div>
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-[#829087]">
+                    Bank accounts
+                  </p>
+                  <span className="rounded-md bg-[#eef2ec] px-2 py-0.5 text-[10px] font-extrabold text-[#52665b]">
+                    {bankAccounts.length}
+                  </span>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                  {bankAccounts.map((account) => (
+                    <BankAccountCard
+                      key={account.uuid || account.id}
+                      account={account}
+                      onEdit={openEditForm}
+                      onOpen={(item) =>
+                        navigate("/admin/history", {
+                          state: { uuid: item.uuid },
+                        })
+                      }
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <div className="rounded-2xl border border-dashed border-[#cbd7cc] bg-white px-6 py-16 text-center">
@@ -532,7 +750,9 @@ export default function Accounts() {
                 </h2>
                 <p className="mt-1 text-xs text-[#718078]">
                   {editingAccount
-                    ? "Update your account details."
+                    ? isEditingCash
+                      ? "Update the physical cash account."
+                      : "Update your bank account details."
                     : "Add a bank account to your directory."}
                 </p>
               </div>
@@ -559,6 +779,16 @@ export default function Accounts() {
                 </div>
               )}
 
+              {isEditingCash && (
+                <div className="flex items-start gap-2 rounded-xl border border-[#f0e3c6] bg-[#fbf6ea] px-3.5 py-3 text-xs text-[#8a6a2f]">
+                  <Wallet size={16} className="mt-0.5 shrink-0" />
+                  <span>
+                    Cash is physical money. This account has no bank name and is
+                    used automatically for cash payments.
+                  </span>
+                </div>
+              )}
+
               <div>
                 <label
                   htmlFor="account_name"
@@ -572,7 +802,9 @@ export default function Accounts() {
                   value={form.account_name}
                   onChange={updateField}
                   className={inputClass}
-                  placeholder="e.g. Main Business Account"
+                  placeholder={
+                    isEditingCash ? "Cash in Hand" : "e.g. Main Business Account"
+                  }
                   maxLength={100}
                   required
                   autoFocus
@@ -583,24 +815,52 @@ export default function Accounts() {
                 </p>
               </div>
 
+              {!isEditingCash && (
+                <div>
+                  <label
+                    htmlFor="bank_name"
+                    className="mb-2 block text-xs font-bold text-[#263a30]"
+                  >
+                    Bank name <span className="text-rose-600">*</span>
+                  </label>
+                  <input
+                    id="bank_name"
+                    name="bank_name"
+                    value={form.bank_name}
+                    onChange={updateField}
+                    className={inputClass}
+                    placeholder="e.g. Bank of Baroda"
+                    maxLength={100}
+                    required
+                    disabled={saving}
+                  />
+                </div>
+              )}
+
               <div>
                 <label
-                  htmlFor="bank_name"
+                  htmlFor="opening_balance"
                   className="mb-2 block text-xs font-bold text-[#263a30]"
                 >
-                  Bank name <span className="text-rose-600">*</span>
+                  Opening balance (₹)
                 </label>
                 <input
-                  id="bank_name"
-                  name="bank_name"
-                  value={form.bank_name}
+                  id="opening_balance"
+                  name="opening_balance"
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="0.01"
+                  value={form.opening_balance}
                   onChange={updateField}
                   className={inputClass}
-                  placeholder="e.g. Bank of Baroda"
-                  maxLength={100}
-                  required
+                  placeholder="0.00"
                   disabled={saving}
                 />
+                <p className="mt-1.5 text-[11px] text-[#829087]">
+                  The starting balance for this account. Current balances arrive
+                  with the transaction ledger.
+                </p>
               </div>
 
               <div className="flex flex-col-reverse gap-3 border-t border-[#e3e9e0] pt-5 sm:flex-row sm:justify-end">

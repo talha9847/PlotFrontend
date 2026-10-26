@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  ArrowUpRight,
   CalendarDays,
   CheckCircle2,
   CircleDashed,
@@ -9,6 +8,8 @@ import {
   FileText,
   Grid2X2,
   IndianRupee,
+  Pencil,
+  Ruler,
   Search,
 } from "lucide-react";
 import axios from "axios";
@@ -19,9 +20,9 @@ import Input from "../components/common/Input";
 import Select from "../components/common/Select";
 import Modal from "../components/common/Modal";
 import Button from "../components/common/Button";
-import { inr } from "../data/mockData";
 import { useToast } from "../components/common/Toast";
 import SearchableLeadSelect from "../components/common/SearchableLeadSelect";
+import PaymentAccountFields from "../components/common/PaymentAccountFields";
 import Loader from "../components/common/Loader";
 
 const DISPLAY = { fontFamily: "'Fraunces', Georgia, serif" };
@@ -29,13 +30,57 @@ const GOLD = "#e4c48a";
 
 const STATUSES = ["Available", "Booked", "Sold"];
 
-const SORTS = [
-  { value: "plot", label: "Plot number" },
-  { value: "low", label: "Price: low to high" },
-  { value: "high", label: "Price: high to low" },
+const PAGE_SIZES = [10, 20, 50, 100];
+
+const PLOT_TYPE_OPTIONS = [
+  { value: "residential", label: "Residential" },
+  { value: "commercial", label: "Commercial" },
+  { value: "industrial", label: "Industrial" },
+  { value: "agricultural", label: "Agricultural" },
+  { value: "other", label: "Other" },
 ];
 
-const PAGE_SIZES = [10, 20, 50, 100];
+const PLOT_STATUS_OPTIONS = [
+  { value: "available", label: "Available" },
+  { value: "reserved", label: "Reserved" },
+  { value: "booked", label: "Booked" },
+  { value: "sold", label: "Sold" },
+  { value: "blocked", label: "Blocked" },
+  { value: "under_development", label: "Under development" },
+];
+
+const FACING_OPTIONS = [
+  { value: "north", label: "North" },
+  { value: "south", label: "South" },
+  { value: "east", label: "East" },
+  { value: "west", label: "West" },
+  { value: "north_east", label: "North-East" },
+  { value: "north_west", label: "North-West" },
+  { value: "south_east", label: "South-East" },
+  { value: "south_west", label: "South-West" },
+];
+
+const DIMENSION_OPTIONS = [
+  { value: "ft", label: "Feet (ft)" },
+  { value: "mt", label: "Metres (m)" },
+];
+
+const optionLabel = (options, value) =>
+  options.find((option) => option.value === value)?.label || value || "—";
+
+const EMPTY_EDIT_FORM = {
+  plot_type: "residential",
+  price: "",
+  length: "",
+  breadth: "",
+  dimension: "ft",
+  status: "available",
+  facing: "",
+  is_corner: false,
+  boundary_wall: false,
+  road_width: "",
+  notes: "",
+};
 
 const EMPTY_STATS = {
   total: 0,
@@ -49,13 +94,13 @@ const norm = (value) =>
     .trim()
     .toLowerCase();
 
-const fmtArea = (area) => {
+const fmtArea = (area, dimension) => {
   if (area == null || area === "") return "—";
 
   const number = Number(area);
 
   return Number.isFinite(number)
-    ? `${number.toLocaleString("en-IN")} sq.ft.`
+    ? `${number.toLocaleString("en-IN")} ${dimension === "mt" ? "m²" : "ft²"}`
     : "—";
 };
 
@@ -65,15 +110,27 @@ const projectOptionsFrom = (projects) =>
     label: project.name,
   }));
 
-const normalizePlot = (plot) => ({
-  ...plot,
-  price: Number(plot.price ?? 0),
-  area: plot.area ?? null,
-  status:
-    norm(plot.status) === "reserved"
-      ? "Booked"
-      : String(plot.status ?? "").replace(/^./, (char) => char.toUpperCase()),
-});
+const normalizePlot = (plot) => {
+  const rawStatus = norm(plot.status);
+
+  return {
+    ...plot,
+    price: Number(plot.price ?? 0),
+    area: plot.area ?? null,
+    length: plot.length ?? null,
+    breadth: plot.breadth ?? null,
+    dimension: plot.dimension || "ft",
+    facing: plot.facing ?? null,
+    isCorner: Boolean(plot.isCorner ?? plot.is_corner),
+    boundaryWall: Boolean(plot.boundaryWall ?? plot.boundary_wall),
+    roadWidth: plot.roadWidth ?? plot.road_width ?? null,
+    rawStatus,
+    status:
+      rawStatus === "reserved"
+        ? "Booked"
+        : String(plot.status ?? "").replace(/^./, (char) => char.toUpperCase()),
+  };
+};
 
 function Stat({ icon: Icon, label, value, dark }) {
   return (
@@ -149,8 +206,13 @@ export default function Plots() {
     discount_amount: "0",
     tax_percent: "0",
     booking_amount: "0",
+    payment_method: "cash",
+    account_id: "",
     notes: "",
   });
+
+  const [accounts, setAccounts] = useState([]);
+  const [loadingAccounts, setLoadingAccounts] = useState(false);
 
   const formatINR = (value) =>
     new Intl.NumberFormat("en-IN", {
@@ -193,7 +255,6 @@ export default function Plots() {
   const agreedPrice = parseAmount(booking.agreed_price);
   const discountAmount = parseAmount(booking.discount_amount);
   const taxPercent = parseAmount(booking.tax_percent);
-  const bookingAmount = parseAmount(booking.booking_amount);
 
   const taxAmount =
     agreedPrice !== null &&
@@ -205,6 +266,21 @@ export default function Plots() {
 
   const totalAmount = (agreedPrice ?? 0) - (discountAmount ?? 0) + taxAmount;
   const [saving, setSaving] = useState(false);
+
+  const [editForm, setEditForm] = useState(EMPTY_EDIT_FORM);
+  const [editErrors, setEditErrors] = useState({});
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  const editLength = parseAmount(editForm.length);
+  const editBreadth = parseAmount(editForm.breadth);
+  const editArea =
+    editLength !== null &&
+    editBreadth !== null &&
+    editLength > 0 &&
+    editBreadth > 0
+      ? Math.round(editLength * editBreadth * 100) / 100
+      : null;
+  const editAreaUnit = editForm.dimension === "mt" ? "m²" : "ft²";
 
   const updateBooking = (event) => {
     const { name, value } = event.target;
@@ -247,12 +323,160 @@ export default function Plots() {
       discount_amount: "0",
       tax_percent: "0",
       booking_amount: "0",
+      payment_method: "cash",
+      account_id: "",
       notes: "",
     });
 
     setFieldErrors({});
     setError("");
     setModalMode("booking");
+  };
+
+  const openEditForm = (plot = selected) => {
+    if (!plot) return;
+
+    setEditForm({
+      plot_type: norm(plot.plotType || plot.plot_type || "residential"),
+      price: plot.price ?? "",
+      length: plot.length ?? "",
+      breadth: plot.breadth ?? "",
+      dimension: plot.dimension || "ft",
+      status: plot.rawStatus || norm(plot.status),
+      facing: plot.facing || "",
+      is_corner: Boolean(plot.isCorner),
+      boundary_wall: Boolean(plot.boundaryWall),
+      road_width: plot.roadWidth ?? "",
+      notes: plot.notes || "",
+    });
+
+    setEditErrors({});
+    setError("");
+    setModalMode("edit");
+  };
+
+  const updateEditForm = (event) => {
+    const { name, type, checked, value } = event.target;
+
+    setEditForm((current) => ({
+      ...current,
+      [name]: type === "checkbox" ? checked : value,
+    }));
+
+    setEditErrors((current) => {
+      if (!current[name]) return current;
+
+      const next = { ...current };
+      delete next[name];
+      return next;
+    });
+  };
+
+  const validateEdit = (values = editForm) => {
+    const errors = {};
+
+    const price = parseAmount(values.price);
+
+    if (price === null) {
+      errors.price = "Price is required.";
+    } else if (price < 0) {
+      errors.price = "Price cannot be negative.";
+    }
+
+    const hasLength = String(values.length ?? "").trim() !== "";
+    const hasBreadth = String(values.breadth ?? "").trim() !== "";
+
+    if (hasLength !== hasBreadth) {
+      const message = "Enter both length and breadth, or leave both empty.";
+
+      if (!hasLength) errors.length = message;
+      if (!hasBreadth) errors.breadth = message;
+    } else if (hasLength) {
+      const length = parseAmount(values.length);
+      const breadth = parseAmount(values.breadth);
+
+      if (length === null || length <= 0) {
+        errors.length = "Length must be greater than zero.";
+      }
+
+      if (breadth === null || breadth <= 0) {
+        errors.breadth = "Breadth must be greater than zero.";
+      }
+    }
+
+    if (String(values.road_width ?? "").trim() !== "") {
+      const roadWidth = parseAmount(values.road_width);
+
+      if (roadWidth === null || roadWidth < 0) {
+        errors.road_width = "Road width cannot be negative.";
+      }
+    }
+
+    if (values.notes.length > 5000) {
+      errors.notes = "Notes cannot exceed 5000 characters.";
+    }
+
+    return errors;
+  };
+
+  const handleSavePlot = async () => {
+    if (!selected || savingEdit) return;
+
+    const errors = validateEdit();
+    setEditErrors(errors);
+
+    if (Object.keys(errors).length > 0) {
+      setError("Please correct the highlighted fields.");
+      return;
+    }
+
+    const payload = {
+      plot_type: editForm.plot_type,
+      price: parseAmount(editForm.price),
+      dimension: editForm.dimension,
+      status: editForm.status,
+      facing: editForm.facing || null,
+      is_corner: editForm.is_corner,
+      boundary_wall: editForm.boundary_wall,
+      road_width: parseAmount(editForm.road_width),
+      length: parseAmount(editForm.length),
+      breadth: parseAmount(editForm.breadth),
+      notes: editForm.notes.trim() || null,
+    };
+
+    setSavingEdit(true);
+    setError("");
+
+    try {
+      const response = await axios.put(
+        `/api/plots/${encodeURIComponent(selected.uuid)}`,
+        payload,
+        { withCredentials: true },
+      );
+
+      const updatedPlot = response.data?.data?.plot;
+
+      if (!updatedPlot) {
+        throw new Error("The server did not return the updated plot.");
+      }
+
+      setSelected(normalizePlot(updatedPlot));
+      setModalMode("details");
+      setEditErrors({});
+      setRefreshKey((current) => current + 1);
+
+      toast(response.data?.message || "Plot updated successfully.", "success");
+    } catch (err) {
+      const message =
+        err.response?.data?.message ||
+        err.message ||
+        "Failed to update the plot.";
+
+      setError(message);
+      toast(message, "error");
+    } finally {
+      setSavingEdit(false);
+    }
   };
 
   // 1. Fetch projects for the dropdown
@@ -309,6 +533,36 @@ export default function Plots() {
     };
 
     fetchProjects();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Payment accounts are needed when a booking token is collected.
+  useEffect(() => {
+    let cancelled = false;
+
+    const fetchAccounts = async () => {
+      setLoadingAccounts(true);
+
+      try {
+        const response = await axios.get("/api/accounts", {
+          withCredentials: true,
+        });
+
+        if (cancelled) return;
+
+        setAccounts(response.data?.data?.accounts || []);
+      } catch (err) {
+        if (cancelled) return;
+        console.error("Failed to fetch accounts:", err);
+      } finally {
+        if (!cancelled) setLoadingAccounts(false);
+      }
+    };
+
+    fetchAccounts();
 
     return () => {
       cancelled = true;
@@ -456,7 +710,6 @@ export default function Plots() {
 
   // The server returns only the current page, already filtered and sorted.
   const scoped = plots;
-  const list = plots;
 
   const matches = (plot) => {
     const plotNumberMatches = String(plot.plotNo ?? "")
@@ -539,6 +792,20 @@ export default function Plots() {
       errors.booking_amount = "Booking amount cannot exceed total amount.";
     }
 
+    if (!values.payment_method) {
+      errors.payment_method = "Select a payment method.";
+    }
+
+    if (
+      initialPayment !== null &&
+      initialPayment > 0 &&
+      values.payment_method &&
+      values.payment_method !== "cash" &&
+      !values.account_id
+    ) {
+      errors.account_id = "Select the bank account receiving this payment.";
+    }
+
     return errors;
   };
 
@@ -559,17 +826,6 @@ export default function Plots() {
     const tax_amount = taxAmount;
     const total_amount = totalAmount;
     const project_id = map[projectUuid];
-    console.log({
-      agreedPrice: agreed_price,
-      discount: discount_amount,
-      tax: tax_amount,
-      initialPayment: booking_amount,
-      total: total_amount,
-      leadId: booking.lead_id,
-      projectId: project_id,
-      bookingDate: booking.booking_date,
-      plotId: plotId,
-    });
 
     if (
       !Number.isFinite(Number(plotId)) ||
@@ -605,16 +861,22 @@ export default function Plots() {
       discount_amount: Number(discount_amount),
       tax_amount: tax_amount,
       booking_amount: Number(booking_amount),
+      payment_method: booking.payment_method || "cash",
+      account_id:
+        booking.payment_method === "cash"
+          ? null
+          : Number(booking.account_id) || null,
+      payment_date: booking.booking_date,
       notes: booking.notes.trim() || null,
     };
 
     setSaving(true);
     setError("");
 
-    console.log("i am here");
     try {
       const res = await axios.post("/api/bookings/create", payload, {
         withCredentials: true,
+        headers: { "Idempotency-Key": crypto.randomUUID() },
       });
 
       if (res.status == 200 || res.status == 201) {
@@ -630,6 +892,8 @@ export default function Plots() {
           discount_amount: "0",
           tax_percent: "0",
           booking_amount: "0",
+          payment_method: "cash",
+          account_id: "",
           notes: "",
         });
 
@@ -847,23 +1111,29 @@ export default function Plots() {
       <Modal
         open={!!selected}
         onClose={() => {
-          if (saving) return;
+          if (saving || savingEdit) return;
           setSelected(null);
           setModalMode("details");
+          setEditErrors({});
+          setError("");
         }}
         title={
           modalMode === "booking"
             ? `Book ${selected?.plotNo || "Plot"}`
-            : selected?.plotNo || "Plot details"
+            : modalMode === "edit"
+              ? `Edit ${selected?.plotNo || "Plot"}`
+              : selected?.plotNo || "Plot details"
         }
         description={
           modalMode === "booking"
             ? "Enter the customer and booking details."
-            : "Plot information"
+            : modalMode === "edit"
+              ? "Update dimensions, pricing, status and plot attributes."
+              : "Plot information"
         }
         footer={
           modalMode === "details" ? (
-            <div className="flex w-full justify-between gap-3">
+            <div className="flex w-full flex-wrap justify-between gap-3">
               <Button
                 variant="secondary"
                 onClick={() => {
@@ -874,11 +1144,22 @@ export default function Plots() {
                 Close
               </Button>
 
-              {String(selected?.status).toLowerCase() === "available" && (
-                <Button onClick={openBookingForm}>Book Plot</Button>
-              )}
+              <div className="flex gap-3">
+                <Button
+                  variant="secondary"
+                  disabled={savingEdit}
+                  onClick={() => openEditForm()}
+                >
+                  <Pencil size={16} />
+                  Edit Plot
+                </Button>
+
+                {String(selected?.status).toLowerCase() === "available" && (
+                  <Button onClick={openBookingForm}>Book Plot</Button>
+                )}
+              </div>
             </div>
-          ) : (
+          ) : modalMode === "booking" ? (
             <div className="flex w-full justify-between gap-3">
               <Button
                 variant="secondary"
@@ -910,9 +1191,93 @@ export default function Plots() {
                 )}
               </Button>
             </div>
+          ) : (
+            <div className="flex w-full justify-between gap-3">
+              <Button
+                variant="secondary"
+                disabled={savingEdit}
+                onClick={() => {
+                  setError("");
+                  setModalMode("details");
+                }}
+              >
+                Cancel
+              </Button>
+
+              <Button
+                type="button"
+                disabled={savingEdit}
+                onClick={() => {
+                  document.getElementById("edit-plot-form")?.requestSubmit();
+                }}
+              >
+                {savingEdit ? (
+                  <Loader
+                    size="xs"
+                    variant="spinner"
+                    color="#ffffff"
+                    label="Saving..."
+                  />
+                ) : (
+                  "Save changes"
+                )}
+              </Button>
+            </div>
           )
         }
       >
+        {selected && (
+          <div
+            role="tablist"
+            aria-label="Plot actions"
+            className="mb-5 flex gap-1 rounded-xl border border-[#e3e9e0] bg-[#eef3ea] p-1"
+          >
+            {[
+              { id: "details", label: "Overview" },
+              {
+                id: "booking",
+                label: "Book Plot",
+                disabled:
+                  String(selected.rawStatus || selected.status).toLowerCase() !==
+                  "available",
+              },
+              { id: "edit", label: "Edit Plot" },
+            ].map((tab) => {
+              const active = modalMode === tab.id;
+
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  disabled={tab.disabled || saving || savingEdit}
+                  title={
+                    tab.disabled
+                      ? "Only available plots can be booked."
+                      : undefined
+                  }
+                  onClick={() => {
+                    if (tab.id === "booking") openBookingForm();
+                    else if (tab.id === "edit") openEditForm();
+                    else {
+                      setError("");
+                      setModalMode("details");
+                    }
+                  }}
+                  className={`flex-1 rounded-lg px-3 py-2 text-xs font-bold transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                    active
+                      ? "bg-white text-[#0b3d2e] shadow-sm"
+                      : "text-[#5b6b63] hover:text-[#0b3d2e]"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
         {selected && modalMode === "details" && (
           <div className="space-y-4">
             <div className="flex items-center justify-between rounded-2xl bg-[#0b3d2e] p-5 text-white">
@@ -934,9 +1299,41 @@ export default function Plots() {
 
             <div className="grid grid-cols-2 gap-3">
               {[
-                ["Area", fmtArea(selected.area)],
+                ["Area", fmtArea(selected.area, selected.dimension)],
+                [
+                  "Dimensions",
+                  selected.length != null && selected.breadth != null
+                    ? `${Number(selected.length).toLocaleString("en-IN")} × ${Number(
+                        selected.breadth,
+                      ).toLocaleString("en-IN")} ${
+                        selected.dimension === "mt" ? "m" : "ft"
+                      }`
+                    : "—",
+                ],
                 ["Reference", selected.plotNo || selected.plot_number],
-                ["Plot type", selected.plotType || selected.plot_type || "—"],
+                [
+                  "Plot type",
+                  optionLabel(
+                    PLOT_TYPE_OPTIONS,
+                    selected.plotType || selected.plot_type,
+                  ),
+                ],
+                [
+                  "Facing",
+                  selected.facing
+                    ? optionLabel(FACING_OPTIONS, selected.facing)
+                    : "Not specified",
+                ],
+                [
+                  "Road width",
+                  selected.roadWidth != null
+                    ? `${Number(selected.roadWidth).toLocaleString("en-IN")} ${
+                        selected.dimension === "mt" ? "m" : "ft"
+                      }`
+                    : "—",
+                ],
+                ["Corner plot", selected.isCorner ? "Yes" : "No"],
+                ["Boundary wall", selected.boundaryWall ? "Yes" : "No"],
                 ["Notes", selected.notes || "—"],
               ].map(([label, value]) => (
                 <div
@@ -1099,6 +1496,35 @@ export default function Plots() {
                 error={fieldErrors.booking_amount}
                 hint="Initial booking payment. Zero is allowed."
               />
+
+              <PaymentAccountFields
+                paymentMethod={booking.payment_method}
+                accountId={booking.account_id}
+                accounts={accounts}
+                loadingAccounts={loadingAccounts}
+                disabled={saving}
+                paymentMethodError={fieldErrors.payment_method}
+                accountError={fieldErrors.account_id}
+                methodLabel="Token payment method"
+                accountLabelText="Receiving bank account"
+                cashHint="Cash tokens post to the Cash in Hand account automatically."
+                onMethodChange={(value) => {
+                  const next = {
+                    ...booking,
+                    payment_method: value,
+                    account_id: "",
+                  };
+                  setBooking(next);
+                  setFieldErrors(validateBooking(next));
+                  setError("");
+                }}
+                onAccountChange={(value) => {
+                  const next = { ...booking, account_id: value };
+                  setBooking(next);
+                  setFieldErrors(validateBooking(next));
+                  setError("");
+                }}
+              />
             </div>
 
             {/* Total breakdown */}
@@ -1158,6 +1584,232 @@ export default function Plots() {
                   className="w-full rounded-xl border border-[#dfe5dc] bg-white py-3 pl-11 pr-4 text-sm outline-none transition placeholder:text-slate-400 focus:border-[#1b7a5a] focus:ring-4 focus:ring-[#1b7a5a]/15 disabled:bg-slate-50"
                 />
               </div>
+            </div>
+
+            {error && (
+              <p
+                role="alert"
+                className="rounded-lg bg-rose-50 px-3 py-2 text-sm font-medium text-rose-600"
+              >
+                {error}
+              </p>
+            )}
+          </form>
+        )}
+
+        {selected && modalMode === "edit" && (
+          <form
+            id="edit-plot-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              handleSavePlot();
+            }}
+            className="space-y-5"
+          >
+            <div className="rounded-xl bg-[#e9f6ef] p-4 text-[#0b3d2e]">
+              <p className="text-xs font-semibold uppercase tracking-wider">
+                Auto-calculated size
+              </p>
+              <p className="mt-1 text-2xl font-bold" style={DISPLAY}>
+                {editArea !== null
+                  ? `${editArea.toLocaleString("en-IN")} ${editAreaUnit}`
+                  : "—"}
+              </p>
+              <p className="mt-1 text-xs text-[#426b56]">
+                Size is calculated from length × breadth and cannot be edited
+                directly.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Input
+                label="Length"
+                name="length"
+                type="text"
+                inputMode="decimal"
+                value={editForm.length}
+                onChange={updateEditForm}
+                leadingIcon={Ruler}
+                disabled={savingEdit}
+                error={editErrors.length}
+                placeholder="e.g. 30"
+              />
+
+              <Input
+                label="Breadth"
+                name="breadth"
+                type="text"
+                inputMode="decimal"
+                value={editForm.breadth}
+                onChange={updateEditForm}
+                leadingIcon={Ruler}
+                disabled={savingEdit}
+                error={editErrors.breadth}
+                placeholder="e.g. 40"
+              />
+
+              <Select
+                label="Dimension unit"
+                name="dimension"
+                options={DIMENSION_OPTIONS}
+                value={editForm.dimension}
+                onChange={updateEditForm}
+                disabled={savingEdit}
+              />
+
+              <Input
+                label={`Size (${editAreaUnit})`}
+                name="area_display"
+                type="text"
+                value={
+                  editArea !== null ? editArea.toLocaleString("en-IN") : ""
+                }
+                readOnly
+                disabled
+                hint="Calculated automatically from length and breadth."
+              />
+
+              <Input
+                label="Price (₹)"
+                name="price"
+                type="text"
+                inputMode="decimal"
+                value={formatIndianInput(editForm.price)}
+                onChange={updateEditForm}
+                leadingIcon={IndianRupee}
+                required
+                disabled={savingEdit}
+                error={editErrors.price}
+              />
+
+              <Select
+                label="Plot type"
+                name="plot_type"
+                options={PLOT_TYPE_OPTIONS}
+                value={editForm.plot_type}
+                onChange={updateEditForm}
+                disabled={savingEdit}
+              />
+
+              <Select
+                label="Status"
+                name="status"
+                options={PLOT_STATUS_OPTIONS}
+                value={editForm.status}
+                onChange={updateEditForm}
+                disabled={savingEdit}
+                hint="A plot with an active booking cannot be marked available."
+              />
+
+              <Select
+                label="Facing"
+                name="facing"
+                options={FACING_OPTIONS}
+                value={editForm.facing}
+                onChange={updateEditForm}
+                placeholder="Not specified"
+                disabled={savingEdit}
+              />
+
+              <Input
+                label="Road width"
+                name="road_width"
+                type="text"
+                inputMode="decimal"
+                value={editForm.road_width}
+                onChange={updateEditForm}
+                disabled={savingEdit}
+                error={editErrors.road_width}
+                hint={`In ${
+                  editForm.dimension === "mt" ? "metres" : "feet"
+                }, matching the dimension unit.`}
+              />
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <label
+                className={`flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition ${
+                  editForm.is_corner
+                    ? "border-[#1b7a5a] bg-[#e9f6ef]"
+                    : "border-[#dfe5dc] bg-white hover:border-[#c3d0bf]"
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  name="is_corner"
+                  checked={editForm.is_corner}
+                  onChange={updateEditForm}
+                  disabled={savingEdit}
+                  className="mt-0.5 h-4 w-4 rounded border-[#c3d0bf] accent-[#1b7a5a]"
+                />
+                <span>
+                  <span className="block text-sm font-semibold text-[#14231d]">
+                    Corner plot
+                  </span>
+                  <span className="mt-0.5 block text-xs text-[#5b6b63]">
+                    Open on two sides
+                  </span>
+                </span>
+              </label>
+
+              <label
+                className={`flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition ${
+                  editForm.boundary_wall
+                    ? "border-[#1b7a5a] bg-[#e9f6ef]"
+                    : "border-[#dfe5dc] bg-white hover:border-[#c3d0bf]"
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  name="boundary_wall"
+                  checked={editForm.boundary_wall}
+                  onChange={updateEditForm}
+                  disabled={savingEdit}
+                  className="mt-0.5 h-4 w-4 rounded border-[#c3d0bf] accent-[#1b7a5a]"
+                />
+                <span>
+                  <span className="block text-sm font-semibold text-[#14231d]">
+                    Boundary wall
+                  </span>
+                  <span className="mt-0.5 block text-xs text-[#5b6b63]">
+                    Plot has a compound wall
+                  </span>
+                </span>
+              </label>
+            </div>
+
+            <div>
+              <label
+                htmlFor="plot-notes"
+                className="mb-2 block text-sm font-semibold text-[#14231d]"
+              >
+                Notes
+              </label>
+
+              <div className="relative">
+                <FileText
+                  size={17}
+                  className="pointer-events-none absolute left-4 top-4 text-slate-400"
+                />
+
+                <textarea
+                  id="plot-notes"
+                  name="notes"
+                  value={editForm.notes}
+                  onChange={updateEditForm}
+                  rows={3}
+                  maxLength={5000}
+                  disabled={savingEdit}
+                  placeholder="Optional notes about this plot..."
+                  className="w-full rounded-xl border border-[#dfe5dc] bg-white py-3 pl-11 pr-4 text-sm outline-none transition placeholder:text-slate-400 focus:border-[#1b7a5a] focus:ring-4 focus:ring-[#1b7a5a]/15 disabled:bg-slate-50"
+                />
+              </div>
+
+              {editErrors.notes && (
+                <p className="mt-1.5 text-xs font-medium text-rose-600">
+                  {editErrors.notes}
+                </p>
+              )}
             </div>
 
             {error && (

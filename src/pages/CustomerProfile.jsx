@@ -23,6 +23,7 @@ import Modal from "../components/common/Modal";
 import Button from "../components/common/Button";
 import Input from "../components/common/Input";
 import Select from "../components/common/Select";
+import PaymentAccountFields from "../components/common/PaymentAccountFields";
 import Badge from "../components/common/Badge";
 import Loader, { PageLoader } from "../components/common/Loader";
 import OverviewTab from "../components/customers/OverviewTab";
@@ -35,7 +36,7 @@ const money = (amount) =>
   new Intl.NumberFormat("en-IN", {
     style: "currency",
     currency: "INR",
-    minimumFractionDigits: 2,
+    minimumFractionDigits: 0,
     maximumFractionDigits: 2,
   }).format(Number(amount || 0));
 
@@ -79,6 +80,12 @@ const normalizeCustomerProfile = (payload) => {
     ...payload,
     installments,
     payments,
+    due_installments: (payload.due_installments || []).map(
+      normalizeInstallment,
+    ),
+    next_upcoming_installment: payload.next_upcoming_installment
+      ? normalizeInstallment(payload.next_upcoming_installment)
+      : null,
     upcoming_installments: (payload.upcoming_installments || []).map(
       normalizeInstallment,
     ),
@@ -91,6 +98,12 @@ const normalizeCustomerProfile = (payload) => {
         ...normalizeInstallment(item),
         payments: (item.payments || []).map(normalizePayment),
       })),
+      due_installments: (booking.due_installments || []).map(
+        normalizeInstallment,
+      ),
+      next_upcoming_installment: booking.next_upcoming_installment
+        ? normalizeInstallment(booking.next_upcoming_installment)
+        : null,
       payments: (booking.payments || []).map(normalizePayment),
     })),
   };
@@ -139,7 +152,7 @@ export default function CustomerProfile() {
   const [paymentSuccess, setPaymentSuccess] = useState("");
   const [accounts, setAccounts] = useState([]);
 
-  const [loadingAccounts, setLoadingAccounts] = useState(false);
+  const [loadingAccounts, setLoadingAccounts] = useState(true);
   const [paymentForm, setPaymentForm] = useState({
     installment_uuid: "",
     amount: "",
@@ -149,29 +162,39 @@ export default function CustomerProfile() {
     notes: "",
   });
 
-  const getAccounts = async () => {
-    setLoadingAccounts(true);
-
-    try {
-      const res = await axios.get("/api/accounts", {
-        withCredentials: true,
-      });
-
-      if (res.status === 200) {
-        setAccounts(res.data?.data?.accounts || []);
-      }
-    } catch (error) {
-      toast(
-        error.response?.data?.message || "Failed to load bank accounts.",
-        "error",
-      );
-    } finally {
-      setLoadingAccounts(false);
-    }
-  };
   useEffect(() => {
-    getAccounts();
+    let cancelled = false;
+
+    const fetchAccounts = async () => {
+      try {
+        const res = await axios.get("/api/accounts", {
+          withCredentials: true,
+        });
+
+        if (!cancelled && res.status === 200) {
+          setAccounts(res.data?.data?.accounts || []);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          toast(
+            error.response?.data?.message || "Failed to load bank accounts.",
+            "error",
+          );
+        }
+      } finally {
+        if (!cancelled) setLoadingAccounts(false);
+      }
+    };
+
+    fetchAccounts();
+
+    return () => {
+      cancelled = true;
+    };
+    // Account lookup runs once on mount; toast is a stable context callback.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
   const fetchProfile = useCallback(
     async (signal, isRefresh = false) => {
       if (!uuid) {
@@ -220,6 +243,8 @@ export default function CustomerProfile() {
 
   useEffect(() => {
     const controller = new AbortController();
+    // fetchProfile owns its request lifecycle and loading flags.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchProfile(controller.signal);
     return () => controller.abort();
   }, [fetchProfile]);
@@ -227,11 +252,20 @@ export default function CustomerProfile() {
   const customer = profile?.customer;
   const stats = profile?.stats || {};
   const bookings = profile?.bookings || [];
-  const installments = profile?.installments || [];
-  const upcoming = profile?.upcoming_installments || [];
-  const overdue = profile?.overdue_installments || [];
+  const installments = useMemo(
+    () => profile?.installments || [],
+    [profile?.installments],
+  );
+  const dueInstallments = profile?.due_installments || [];
+  const nextUpcomingInstallment = profile?.next_upcoming_installment || null;
+  const isAdvancePayment =
+    dueInstallments.length === 0 && Boolean(nextUpcomingInstallment);
+  const installmentStats = profile?.installment_stats || {};
 
-  const payments = profile?.payments || [];
+  const payments = useMemo(
+    () => profile?.payments || [],
+    [profile?.payments],
+  );
 
   const paidInstallments = useMemo(
     () => installments.filter((item) => item.status === "paid"),
@@ -259,9 +293,13 @@ export default function CustomerProfile() {
     );
   }, [payments, paymentSearch]);
 
-  const payableInstallments = installments.filter((item) =>
-    ["pending", "partially_paid", "overdue"].includes(item.status),
-  );
+  // Only current dues are actionable. When nothing is due, offer the single
+  // next upcoming installment instead of the entire future schedule.
+  const payableInstallments = dueInstallments.length
+    ? dueInstallments
+    : nextUpcomingInstallment
+      ? [nextUpcomingInstallment]
+      : [];
 
   const selectedInstallment = payableInstallments.find(
     (item) =>
@@ -330,6 +368,8 @@ export default function CustomerProfile() {
       amount <= 0
     ) {
       nextErrors.amount = "Enter a valid payment amount greater than ₹0.";
+    } else if (!Number.isInteger(amount)) {
+      nextErrors.amount = "Payment amount must be a whole rupee amount.";
     } else if (amount > installmentPayable) {
       nextErrors.amount = `Payment cannot exceed ${money(installmentPayable)}.`;
     }
@@ -342,7 +382,13 @@ export default function CustomerProfile() {
       nextErrors.payment_method = "Select a payment method.";
     }
 
-    if (!paymentForm.account_id) {
+    // Cash always posts to the Cash in Hand account; only non-cash payments
+    // need an explicit bank account.
+    if (
+      paymentForm.payment_method &&
+      paymentForm.payment_method !== "cash" &&
+      !paymentForm.account_id
+    ) {
       nextErrors.account_id = "Select a receiving bank account.";
     }
 
@@ -365,7 +411,7 @@ export default function CustomerProfile() {
     }
 
     const payload = {
-      amount: amount.toFixed(2),
+      amount,
       booking_id: Number(bookingId),
       customer_id: Number(customerId),
       installment_id: Number(installmentId),
@@ -373,7 +419,11 @@ export default function CustomerProfile() {
       paid_at: paymentForm.paid_at,
       payment_method: paymentForm.payment_method,
       notes: paymentForm.notes.trim(),
-      account_id: Number(paymentForm.account_id),
+      account_id:
+        paymentForm.payment_method === "cash" ||
+        !paymentForm.account_id
+          ? null
+          : Number(paymentForm.account_id),
     };
 
     setSavingPayment(true);
@@ -381,6 +431,7 @@ export default function CustomerProfile() {
     try {
       const response = await axios.post("/api/payments/received", payload, {
         withCredentials: true,
+        headers: { "Idempotency-Key": crypto.randomUUID() },
       });
 
       if (response.data?.success === false) {
@@ -461,17 +512,30 @@ export default function CustomerProfile() {
       ? Math.min(100, Math.round((totalPaid / totalValue) * 100))
       : 0;
 
-  const upcomingAmount = upcoming.reduce(
-    (sum, item) =>
-      sum +
-      Math.max(
+  const pendingOverdueAmount = number(
+    installmentStats.total_pending_overdue_amount ??
+      dueInstallments.reduce(
+        (sum, item) =>
+          sum +
+          Math.max(
+            0,
+            number(item.amount_due) +
+              number(item.late_fee) -
+              number(item.amount_paid),
+          ),
         0,
-        number(item.amount_due) +
-          number(item.late_fee) -
-          number(item.amount_paid),
       ),
-    0,
   );
+
+  const nextUpcomingAmount = nextUpcomingInstallment
+    ? Math.max(
+        0,
+        number(nextUpcomingInstallment.amount_due) +
+          number(nextUpcomingInstallment.late_fee) -
+          number(nextUpcomingInstallment.amount_paid),
+      )
+    : 0;
+  const hasDueInstallments = dueInstallments.length > 0;
 
   const tabs = ["Overview", "Plots & Bookings", "Installments", "Payments"];
 
@@ -610,9 +674,21 @@ export default function CustomerProfile() {
           />
           <StatCard
             icon={CalendarDays}
-            label="Upcoming Installments"
-            value={money(upcomingAmount)}
-            hint={`${upcoming.length} scheduled installments${overdue.length ? ` · ${overdue.length} overdue` : ""}`}
+            label={
+              hasDueInstallments
+                ? "Due / Overdue Installments"
+                : "Next Installment"
+            }
+            value={money(
+              hasDueInstallments ? pendingOverdueAmount : nextUpcomingAmount,
+            )}
+            hint={
+              hasDueInstallments
+                ? `${dueInstallments.length} installment${dueInstallments.length === 1 ? "" : "s"} due today or earlier`
+                : nextUpcomingInstallment
+                  ? `Due ${formatDate(nextUpcomingInstallment.due_date)}`
+                  : "No pending installments"
+            }
             tone="bg-purple-50 text-purple-700"
           />
         </section>
@@ -684,9 +760,8 @@ export default function CustomerProfile() {
             customer={customer}
             bookings={bookings}
             paidInstallments={paidInstallments}
-            upcoming={upcoming}
-            overdue={overdue}
-            stats={stats}
+            dueInstallments={dueInstallments}
+            nextUpcomingInstallment={nextUpcomingInstallment}
             onViewBookings={() => setActiveTab("Plots & Bookings")}
             onViewPayments={() => setActiveTab("Payments")}
           />
@@ -697,7 +772,10 @@ export default function CustomerProfile() {
         )}
 
         {activeTab === "Installments" && (
-          <InstallmentsTab installments={installments} />
+          <InstallmentsTab
+            installments={installments}
+            installmentStats={installmentStats}
+          />
         )}
 
         {activeTab === "Payments" && (
@@ -714,7 +792,11 @@ export default function CustomerProfile() {
           onClose={closePaymentModal}
           size="lg"
           title="Record payment"
-          description="Select an installment, enter the payment amount, and confirm the details."
+          description={
+            isAdvancePayment
+              ? "No installments are currently due. Record an advance payment for the next upcoming installment."
+              : "Select an installment, enter the payment amount, and confirm the details."
+          }
           footer={
             <div className="flex w-full flex-col-reverse gap-3 sm:flex-row sm:justify-end">
               <Button
@@ -757,11 +839,16 @@ export default function CustomerProfile() {
 
             {payableInstallments.length === 0 ? (
               <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-                There are no pending, partially paid, or overdue installments
-                for this customer.
+                There are no due or upcoming installments for this customer.
               </div>
             ) : (
               <>
+                {isAdvancePayment && (
+                  <div className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-xs leading-5 text-sky-800">
+                    All current dues are settled. This payment will be applied
+                    in advance to the next upcoming installment.
+                  </div>
+                )}
                 <Select
                   id="payment-installment"
                   name="installment_uuid"
@@ -791,7 +878,9 @@ export default function CustomerProfile() {
                       item.plot_number ? `Plot ${item.plot_number}` : "",
                       item.booking_number || "",
                       `Installment #${item.installment_number}`,
+                      `Due ${formatDate(item.due_date)}`,
                       `${money(balance)} outstanding`,
+                      isAdvancePayment ? "Upcoming" : "",
                     ]
                       .filter(Boolean)
                       .join(" · ");
@@ -827,10 +916,10 @@ export default function CustomerProfile() {
                     name="amount"
                     label="Payment amount (₹)"
                     type="number"
-                    min="0.01"
+                    min="1"
                     max={installmentPayable || undefined}
-                    step="0.01"
-                    inputMode="decimal"
+                    step="1"
+                    inputMode="numeric"
                     value={paymentForm.amount}
                     onChange={(event) =>
                       handlePaymentFieldChange("amount", event.target.value)
@@ -856,51 +945,23 @@ export default function CustomerProfile() {
                 </div>
 
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <Select
-                    id="payment-method"
-                    name="payment_method"
-                    label="Payment method"
-                    placeholder="Select payment method"
-                    required
-                    value={paymentForm.payment_method}
-                    error={paymentErrors.payment_method}
-                    onChange={(event) =>
-                      handlePaymentFieldChange(
-                        "payment_method",
-                        event.target.value,
-                      )
+                  <PaymentAccountFields
+                    paymentMethod={paymentForm.payment_method}
+                    accountId={paymentForm.account_id}
+                    accounts={accounts}
+                    loadingAccounts={loadingAccounts}
+                    paymentMethodError={paymentErrors.payment_method}
+                    accountError={paymentErrors.account_id}
+                    onMethodChange={(value) => {
+                      handlePaymentFieldChange("payment_method", value);
+                      if (value === "cash") {
+                        handlePaymentFieldChange("account_id", "");
+                      }
+                    }}
+                    onAccountChange={(value) =>
+                      handlePaymentFieldChange("account_id", value)
                     }
-                    options={[
-                      { value: "cash", label: "Cash" },
-                      { value: "upi", label: "UPI" },
-                      { value: "bank_transfer", label: "Bank transfer" },
-                      { value: "card", label: "Card" },
-                      { value: "cheque", label: "Cheque" },
-                      { value: "other", label: "Other" },
-                    ]}
-                  />
-                  <Select
-                    id="payment-account"
-                    name="account_id"
-                    label="Receiving bank account"
-                    placeholder={
-                      loadingAccounts
-                        ? "Loading accounts..."
-                        : accounts.length
-                          ? "Select bank account"
-                          : "No bank accounts available"
-                    }
-                    required
-                    disabled={loadingAccounts || accounts.length === 0}
-                    value={paymentForm.account_id}
-                    error={paymentErrors.account_id}
-                    onChange={(event) =>
-                      handlePaymentFieldChange("account_id", event.target.value)
-                    }
-                    options={accounts.map((account) => ({
-                      value: String(account.id),
-                      label: `${account.account_name} — ${account.bank_name}`,
-                    }))}
+                    cashHint="Cash payments post to the Cash in Hand account automatically."
                   />
                 </div>
 
