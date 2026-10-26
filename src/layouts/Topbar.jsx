@@ -9,6 +9,7 @@ import {
   Plus,
   Receipt,
   Search,
+  ShieldClose,
   UserPlus,
 } from "lucide-react";
 
@@ -217,6 +218,16 @@ export default function Topbar({
                 className="flex w-full items-center gap-3 px-4 py-3 text-xs font-semibold text-[#3f4f48] transition hover:bg-[#f3f7f1]"
               >
                 <Globe size={15} /> View website
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  navigate("/admin/reset-password");
+                  setUserOpen(false);
+                }}
+                className="flex w-full items-center gap-3 px-4 py-3 text-xs font-semibold text-[#3f4f48] transition hover:bg-[#f3f7f1]"
+              >
+                <ShieldClose size={15} /> Change Password
               </button>
               <button
                 type="button"
