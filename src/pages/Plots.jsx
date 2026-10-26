@@ -1408,7 +1408,6 @@ export default function Plots() {
               onChange={updateBooking}
               placeholder="Select a lead"
               searchPlaceholder="Search by name or phone..."
-              required
               disabled={saving}
               error={fieldErrors.lead_id}
             />
