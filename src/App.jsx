@@ -26,6 +26,7 @@ import TransactionHistoryDummy from "./pages/TransactionHistory";
 import Parties from "./pages/Parties";
 import Categories from "./pages/Categories";
 import ResetPassword from "./pages/ResetPassword";
+import PlotLocationPicker from "./pages/PlotLocationPicker";
 
 export default function App() {
   return (
@@ -54,6 +55,7 @@ export default function App() {
             <Route path="history" element={<AccountHistory />} />
             <Route path="layout" element={<ComingSoonPage />} />
             <Route path="installments" element={<Installments />} />
+            <Route path="address" element={<PlotLocationPicker />} />
             <Route path="reset-password" element={<ResetPassword />} />
             <Route path="transactions" element={<TransactionHistoryDummy />} />
             <Route path="reminders" element={<ComingSoonPage />} />
