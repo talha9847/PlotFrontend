@@ -1,10 +1,4 @@
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   MapContainer,
   TileLayer,
@@ -75,21 +69,13 @@ async function suggestPlaces(text, signal, [lat, lon]) {
     location_bias_scale: "0.4",
     bbox: "68.1,6.7,97.4,35.5", // India
   });
-  const res = await fetch(`https://photon.komoot.io/api/?${params}`, {
-    signal,
-  });
+  const res = await fetch(`https://photon.komoot.io/api/?${params}`, { signal });
   if (!res.ok) throw new Error("Suggestions are unavailable right now.");
   const json = await res.json();
   return (json.features || []).map((f) => {
     const p = f.properties || {};
     const title = p.name || p.street || p.city || p.state || "Unnamed place";
-    const subtitle = [
-      p.street && p.name ? p.street : null,
-      p.district,
-      p.city,
-      p.state,
-      p.postcode,
-    ]
+    const subtitle = [p.street && p.name ? p.street : null, p.district, p.city, p.state, p.postcode]
       .filter(Boolean)
       .filter((v, i, a) => a.indexOf(v) === i && v !== title)
       .join(", ");
@@ -136,6 +122,49 @@ async function searchNominatim(text, signal) {
       type: r.type || "",
     };
   });
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** Strips Google Plus Codes ("4P7G+MX"), "India" and line breaks from a pasted address. */
+function cleanAddress(raw) {
+  return raw
+    .replace(/\b[23456789CFGHJMPQRVWX]{4,8}\+[23456789CFGHJMPQRVWX]{2,3}\b/gi, "")
+    .replace(/\bIndia\b/gi, "")
+    .replace(/\s*\n+\s*/g, ", ")
+    .replace(/\s{2,}/g, " ")
+    .replace(/(,\s*)+/g, ", ")
+    .replace(/^[,\s]+|[,\s]+$/g, "");
+}
+
+/** True for pasted text that looks like a full postal address (not coordinates or a link). */
+function looksLikeAddress(text) {
+  const t = text.trim();
+  if (!t || parseCoordinates(t) || /^https?:\/\//i.test(t)) return false;
+  return (t.includes(",") && t.length >= 20) || /\b\d{6}\b/.test(t);
+}
+
+/**
+ * Searches a full address. Map data rarely knows shop or building names, so if
+ * the full text finds nothing it retries without the leading parts, then with
+ * only the area, city and PIN. Waits 1.1s between tries (Nominatim's limit).
+ */
+async function smartAddressSearch(raw, signal) {
+  const cleaned = cleanAddress(raw);
+  const parts = cleaned.split(",").map((p) => p.trim()).filter(Boolean);
+  const attempts = [cleaned];
+  for (let i = 1; i < parts.length - 2 && attempts.length < 3; i++) {
+    attempts.push(parts.slice(i).join(", "));
+  }
+  if (parts.length > 3) attempts.push(parts.slice(-3).join(", "));
+  const unique = [...new Set(attempts)];
+
+  for (let i = 0; i < unique.length; i++) {
+    if (i > 0) await sleep(1100);
+    const items = await searchNominatim(unique[i], signal);
+    if (items.length) return { items, matched: unique[i], exact: i === 0 };
+  }
+  return { items: [], matched: "", exact: false };
 }
 
 /**
@@ -233,6 +262,7 @@ export default function PlotLocationPicker({ onSave }) {
   const posRef = useRef(position);
   posRef.current = position; // lets the suggestion effect read the pin without re-running when it moves
   const [moreLoading, setMoreLoading] = useState(false);
+  const skipAutoRef = useRef(""); // query already handled by the address search
   const debouncedQuery = useDebounced(query, DEBOUNCE_MS);
 
   const selectedProject = useMemo(
@@ -249,6 +279,7 @@ export default function PlotLocationPicker({ onSave }) {
   /* Fetch suggestions while typing (debounced, cancels stale requests) */
   useEffect(() => {
     const text = debouncedQuery.trim();
+    if (text === skipAutoRef.current) return;
     if (text.length < MIN_CHARS || parseCoordinates(text)) {
       setSuggestions([]);
       setSearchLoading(false);
@@ -299,13 +330,9 @@ export default function PlotLocationPicker({ onSave }) {
         });
         const res = await fetch(
           `https://nominatim.openstreetmap.org/reverse?${params}`,
-          {
-            signal: controller.signal,
-            headers: { Accept: "application/json" },
-          },
+          { signal: controller.signal, headers: { Accept: "application/json" } },
         );
-        if (!res.ok)
-          throw new Error("Address lookup failed. Enter it manually.");
+        if (!res.ok) throw new Error("Address lookup failed. Enter it manually.");
         const data = await res.json();
         setAddress(data.display_name || "");
         if (!silent) {
@@ -354,32 +381,41 @@ export default function PlotLocationPicker({ onSave }) {
     notify("Pin moved to the pasted coordinates.", "success");
   }
 
-  async function runMoreSearch() {
-    const text = query.trim();
+  async function runMoreSearch(override, replace = false) {
+    const text = (typeof override === "string" ? override : query).trim();
     if (text.length < MIN_CHARS) return;
+    skipAutoRef.current = text;
     setMoreLoading(true);
     try {
-      const items = await searchNominatim(text);
-      // Merge with what Photon found, dropping near-duplicates
-      const seen = new Set(
-        suggestions.map((s) => `${s.lat.toFixed(4)},${s.lon.toFixed(4)}`),
-      );
-      const extra = items.filter(
-        (i) => !seen.has(`${i.lat.toFixed(4)},${i.lon.toFixed(4)}`),
-      );
-      setSuggestions([...suggestions, ...extra]);
+      const { items, matched, exact } = await smartAddressSearch(text);
+      // Merge with the type-ahead results, dropping near-duplicates
+      const base = replace ? [] : suggestions;
+      const seen = new Set(base.map((s) => `${s.lat.toFixed(4)},${s.lon.toFixed(4)}`));
+      const extra = items.filter((i) => !seen.has(`${i.lat.toFixed(4)},${i.lon.toFixed(4)}`));
+      setSuggestions([...base, ...extra]);
+      setActiveIndex(-1);
       setOpen(true);
       if (!items.length) {
-        notify(
-          "No more matches. Try a nearby village, taluka or PIN code.",
-          "warning",
-        );
+        notify("No match for that address. Try the area name or PIN code.", "warning");
+      } else if (!exact) {
+        notify(`Exact address not found. Showing matches for "${matched}". Drag the pin onto the plot.`, "info");
       }
     } catch (err) {
       notify(err.message || "Search failed. Try again in a moment.", "warning");
     } finally {
       setMoreLoading(false);
     }
+  }
+
+  /** Pasting a full address (for example copied from Google Maps) searches it straight away. */
+  function onSearchPaste(e) {
+    const text = e.clipboardData?.getData("text") || "";
+    if (!looksLikeAddress(text)) return;
+    e.preventDefault();
+    const cleaned = cleanAddress(text);
+    setQuery(cleaned);
+    setSuggestions([]);
+    runMoreSearch(cleaned, true);
   }
 
   function onSearchKeyDown(e) {
@@ -394,8 +430,7 @@ export default function PlotLocationPicker({ onSave }) {
     } else if (e.key === "Enter") {
       e.preventDefault();
       if (pastedCoords) usePastedCoordinates();
-      else if (activeIndex >= 0 && list[activeIndex])
-        chooseSuggestion(list[activeIndex]);
+      else if (activeIndex >= 0 && list[activeIndex]) chooseSuggestion(list[activeIndex]);
       else if (list[0]) chooseSuggestion(list[0]);
     } else if (e.key === "Escape") {
       setOpen(false);
@@ -408,13 +443,8 @@ export default function PlotLocationPicker({ onSave }) {
       return;
     }
     navigator.geolocation.getCurrentPosition(
-      ({ coords }) =>
-        movePin([coords.latitude, coords.longitude], { fly: true }),
-      () =>
-        notify(
-          "Could not access your location. Check browser permissions.",
-          "warning",
-        ),
+      ({ coords }) => movePin([coords.latitude, coords.longitude], { fly: true }),
+      () => notify("Could not access your location. Check browser permissions.", "warning"),
       { enableHighAccuracy: true, timeout: 10000 },
     );
   }
@@ -452,10 +482,7 @@ export default function PlotLocationPicker({ onSave }) {
     setPlotName("");
     setAddress("");
     setQuery("");
-    notify(
-      `Saved ${record.plotName}. Add the next plot or export the list.`,
-      "success",
-    );
+    notify(`Saved ${record.plotName}. Add the next plot or export the list.`, "success");
   }
 
   function removePlot(id) {
@@ -470,31 +497,13 @@ export default function PlotLocationPicker({ onSave }) {
   }
 
   function exportCsv() {
-    const header = [
-      "Project ID",
-      "Project",
-      "Plot",
-      "Address",
-      "Latitude",
-      "Longitude",
-      "Saved at",
-    ];
+    const header = ["Project ID", "Project", "Plot", "Address", "Latitude", "Longitude", "Saved at"];
     const rows = savedPlots.map((p) =>
-      [
-        p.projectId,
-        p.projectName,
-        p.plotName,
-        p.address,
-        p.latitude,
-        p.longitude,
-        p.savedAt,
-      ]
+      [p.projectId, p.projectName, p.plotName, p.address, p.latitude, p.longitude, p.savedAt]
         .map((v) => `"${String(v).replace(/"/g, '""')}"`)
         .join(","),
     );
-    const blob = new Blob([[header.join(","), ...rows].join("\n")], {
-      type: "text/csv",
-    });
+    const blob = new Blob([[header.join(","), ...rows].join("\n")], { type: "text/csv" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = "plot-locations.csv";
@@ -540,8 +549,7 @@ export default function PlotLocationPicker({ onSave }) {
             Plot location
           </h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
-            Search a place or paste coordinates, then drag the pin onto the
-            exact plot.
+            Search a place or paste coordinates, then drag the pin onto the exact plot.
           </p>
         </header>
 
@@ -550,16 +558,9 @@ export default function PlotLocationPicker({ onSave }) {
           className="grid items-start gap-5 lg:grid-cols-[minmax(0,1.6fr)_minmax(300px,0.8fr)]"
         >
           <section className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
-            <StepHeader
-              n="1"
-              title="Plot details"
-              hint="Choose the project and identify the plot."
-            />
+            <StepHeader n="1" title="Plot details" hint="Choose the project and identify the plot." />
 
-            <label
-              htmlFor="project"
-              className="mb-2 block text-xs font-semibold text-slate-700"
-            >
+            <label htmlFor="project" className="mb-2 block text-xs font-semibold text-slate-700">
               Project <span className="text-rose-600">*</span>
             </label>
             <div className="relative">
@@ -576,15 +577,10 @@ export default function PlotLocationPicker({ onSave }) {
                   </option>
                 ))}
               </select>
-              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">
-                ▼
-              </span>
+              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">▼</span>
             </div>
 
-            <label
-              htmlFor="plotName"
-              className="mb-2 mt-5 block text-xs font-semibold text-slate-700"
-            >
+            <label htmlFor="plotName" className="mb-2 mt-5 block text-xs font-semibold text-slate-700">
               Plot / unit number <span className="text-rose-600">*</span>
             </label>
             <input
@@ -602,16 +598,10 @@ export default function PlotLocationPicker({ onSave }) {
                   : "border-slate-200 focus:border-emerald-500 focus:ring-emerald-500/10"
               }`}
             />
-            {errors.plotName && (
-              <p className="mt-1.5 text-xs text-rose-600">{errors.plotName}</p>
-            )}
+            {errors.plotName && <p className="mt-1.5 text-xs text-rose-600">{errors.plotName}</p>}
 
             <div className="mt-8">
-              <StepHeader
-                n="2"
-                title="Find and pin the location"
-                hint="Type a place, pick a suggestion, or paste coordinates or a Google Maps link."
-              />
+              <StepHeader n="2" title="Find and pin the location" hint="Type a place, pick a suggestion, or paste coordinates or a Google Maps link." />
             </div>
 
             {/* ---- search with suggestions ---- */}
@@ -625,7 +615,8 @@ export default function PlotLocationPicker({ onSave }) {
                 }}
                 onFocus={() => setOpen(true)}
                 onKeyDown={onSearchKeyDown}
-                placeholder="Search a village, society, landmark or paste lat, lng"
+                onPaste={onSearchPaste}
+                placeholder="Search a place, paste an address, or paste lat, lng"
                 aria-label="Search location"
                 role="combobox"
                 aria-expanded={showDropdown}
@@ -666,29 +657,22 @@ export default function PlotLocationPicker({ onSave }) {
                       >
                         <Crosshair className="h-4 w-4 shrink-0 text-emerald-700" />
                         <span className="text-xs text-slate-700">
-                          Go to {pastedCoords[0].toFixed(6)},{" "}
-                          {pastedCoords[1].toFixed(6)}
+                          Go to {pastedCoords[0].toFixed(6)}, {pastedCoords[1].toFixed(6)}
                         </span>
                       </button>
                     </li>
                   )}
 
-                  {!pastedCoords &&
-                    query.trim().length < MIN_CHARS &&
-                    recent.length > 0 && (
-                      <>
-                        <li className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-400">
-                          <History className="h-3.5 w-3.5" /> Recent searches
-                        </li>
-                        {recent.map((item) => (
-                          <SuggestionRow
-                            key={item.id}
-                            item={item}
-                            onPick={chooseSuggestion}
-                          />
-                        ))}
-                      </>
-                    )}
+                  {!pastedCoords && query.trim().length < MIN_CHARS && recent.length > 0 && (
+                    <>
+                      <li className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-400">
+                        <History className="h-3.5 w-3.5" /> Recent searches
+                      </li>
+                      {recent.map((item) => (
+                        <SuggestionRow key={item.id} item={item} onPick={chooseSuggestion} />
+                      ))}
+                    </>
+                  )}
 
                   {suggestions.map((item, i) => (
                     <SuggestionRow
@@ -702,8 +686,7 @@ export default function PlotLocationPicker({ onSave }) {
 
                   {queryReady && !searchLoading && suggestions.length === 0 && (
                     <li className="px-3 py-2 text-xs text-slate-500">
-                      No quick matches. Try more results, or add a village,
-                      taluka or PIN code.
+                      No quick matches. Try more results, or add a village, taluka or PIN code.
                     </li>
                   )}
 
@@ -742,18 +725,8 @@ export default function PlotLocationPicker({ onSave }) {
                 Click the map or drag the marker to fine-tune the pin.
               </span>
               <div className="flex items-center gap-2">
-                <LayerButton
-                  active={!satellite}
-                  onClick={() => setSatellite(false)}
-                  icon={MapIcon}
-                  label="Map"
-                />
-                <LayerButton
-                  active={satellite}
-                  onClick={() => setSatellite(true)}
-                  icon={Satellite}
-                  label="Satellite"
-                />
+                <LayerButton active={!satellite} onClick={() => setSatellite(false)} icon={MapIcon} label="Map" />
+                <LayerButton active={satellite} onClick={() => setSatellite(true)} icon={Satellite} label="Satellite" />
                 <button
                   type="button"
                   onClick={useMyLocation}
@@ -767,18 +740,8 @@ export default function PlotLocationPicker({ onSave }) {
             </div>
 
             <div className="h-[300px] overflow-hidden rounded-xl border border-slate-200 sm:h-[380px]">
-              <MapContainer
-                center={DEFAULT_POSITION}
-                zoom={13}
-                scrollWheelZoom
-                className="h-full w-full"
-              >
-                <TileLayer
-                  key={satellite ? "sat" : "street"}
-                  attribution={tileAttribution}
-                  url={tileUrl}
-                  maxZoom={19}
-                />
+              <MapContainer center={DEFAULT_POSITION} zoom={13} scrollWheelZoom className="h-full w-full">
+                <TileLayer key={satellite ? "sat" : "street"} attribution={tileAttribution} url={tileUrl} maxZoom={19} />
                 <MapClickHandler onPick={(c) => movePin(c)} />
                 <MapFlyTo target={flyTarget} />
                 <Marker
@@ -797,35 +760,20 @@ export default function PlotLocationPicker({ onSave }) {
 
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
               <CoordinateCard label="Latitude" value={position[0].toFixed(7)} />
-              <CoordinateCard
-                label="Longitude"
-                value={position[1].toFixed(7)}
-              />
+              <CoordinateCard label="Longitude" value={position[1].toFixed(7)} />
             </div>
 
             <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2">
-              <button
-                type="button"
-                onClick={copyCoordinates}
-                className="inline-flex items-center gap-2 text-xs font-semibold text-emerald-800 hover:text-emerald-950"
-              >
+              <button type="button" onClick={copyCoordinates} className="inline-flex items-center gap-2 text-xs font-semibold text-emerald-800 hover:text-emerald-950">
                 <Copy className="h-3.5 w-3.5" /> Copy coordinates
               </button>
-              <a
-                href={googleMapsUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-2 text-xs font-semibold text-emerald-800 hover:text-emerald-950"
-              >
+              <a href={googleMapsUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 text-xs font-semibold text-emerald-800 hover:text-emerald-950">
                 <ExternalLink className="h-3.5 w-3.5" /> Open in Google Maps
               </a>
             </div>
 
             <div className="mt-5 flex items-center justify-between">
-              <label
-                htmlFor="address"
-                className="block text-xs font-semibold text-slate-700"
-              >
+              <label htmlFor="address" className="block text-xs font-semibold text-slate-700">
                 Address
               </label>
               <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-500">
@@ -847,9 +795,7 @@ export default function PlotLocationPicker({ onSave }) {
                 placeholder="Move the pin to fill this automatically, or type it"
                 className="w-full resize-y rounded-xl border border-slate-200 px-3.5 py-3 text-sm leading-6 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
               />
-              {addressLoading && (
-                <LoaderCircle className="absolute right-3 top-3 h-4 w-4 animate-spin text-slate-400" />
-              )}
+              {addressLoading && <LoaderCircle className="absolute right-3 top-3 h-4 w-4 animate-spin text-slate-400" />}
             </div>
             <button
               type="button"
@@ -860,8 +806,7 @@ export default function PlotLocationPicker({ onSave }) {
               <Navigation className="h-3.5 w-3.5" /> Get address for this pin
             </button>
             <p className="mt-2 text-xs leading-5 text-slate-400">
-              Addresses come from map data and may describe a nearby locality,
-              not the official plot boundary.
+              Addresses come from map data and may describe a nearby locality, not the official plot boundary.
             </p>
 
             {message && (
@@ -904,14 +849,8 @@ export default function PlotLocationPicker({ onSave }) {
           {/* ---- summary + saved list ---- */}
           <aside className="min-w-0 space-y-5 lg:sticky lg:top-6">
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-              <StepHeader
-                n="3"
-                title="Location summary"
-                hint="Review before saving."
-              />
-              <p className="mb-1 text-xs font-bold text-emerald-800">
-                {selectedProject.name}
-              </p>
+              <StepHeader n="3" title="Location summary" hint="Review before saving." />
+              <p className="mb-1 text-xs font-bold text-emerald-800">{selectedProject.name}</p>
               <h3 className="break-words text-2xl font-bold tracking-tight text-slate-950">
                 {plotName.trim() || "Untitled plot"}
               </h3>
@@ -922,53 +861,33 @@ export default function PlotLocationPicker({ onSave }) {
                 <SummaryRow label="Project ID" value={selectedProject.id} />
                 <SummaryRow label="Latitude" value={position[0].toFixed(7)} />
                 <SummaryRow label="Longitude" value={position[1].toFixed(7)} />
-                <SummaryRow
-                  label="Map layer"
-                  value={satellite ? "Satellite" : "Street map"}
-                />
+                <SummaryRow label="Map layer" value={satellite ? "Satellite" : "Street map"} />
               </div>
             </div>
 
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
               <div className="mb-3 flex items-center justify-between">
                 <h2 className="text-sm font-semibold text-slate-900">
-                  Saved plots{" "}
-                  {savedPlots.length > 0 && (
-                    <span className="text-slate-400">
-                      ({savedPlots.length})
-                    </span>
-                  )}
+                  Saved plots {savedPlots.length > 0 && <span className="text-slate-400">({savedPlots.length})</span>}
                 </h2>
                 {savedPlots.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={exportCsv}
-                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-800 hover:text-emerald-950"
-                  >
+                  <button type="button" onClick={exportCsv} className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-800 hover:text-emerald-950">
                     <Download className="h-3.5 w-3.5" /> Export CSV
                   </button>
                 )}
               </div>
               {savedPlots.length === 0 ? (
                 <p className="text-xs leading-5 text-slate-500">
-                  Plots you save appear here. Select one to jump back to its
-                  pin.
+                  Plots you save appear here. Select one to jump back to its pin.
                 </p>
               ) : (
                 <ul className="max-h-72 divide-y divide-slate-100 overflow-y-auto">
                   {savedPlots.map((p) => (
                     <li key={p.id} className="flex items-start gap-2 py-2.5">
-                      <button
-                        type="button"
-                        onClick={() => flyToPlot(p)}
-                        className="min-w-0 flex-1 text-left"
-                      >
-                        <div className="truncate text-sm font-semibold text-slate-800">
-                          {p.plotName}
-                        </div>
+                      <button type="button" onClick={() => flyToPlot(p)} className="min-w-0 flex-1 text-left">
+                        <div className="truncate text-sm font-semibold text-slate-800">{p.plotName}</div>
                         <div className="truncate text-xs text-slate-500">
-                          {p.projectName} · {p.latitude.toFixed(5)},{" "}
-                          {p.longitude.toFixed(5)}
+                          {p.projectName} · {p.latitude.toFixed(5)}, {p.longitude.toFixed(5)}
                         </div>
                       </button>
                       <button
@@ -984,16 +903,14 @@ export default function PlotLocationPicker({ onSave }) {
                 </ul>
               )}
               <p className="mt-3 text-xs leading-5 text-slate-400">
-                Held in memory until you refresh. Connect the onSave prop to
-                your API to keep them.
+                Held in memory until you refresh. Connect the onSave prop to your API to keep them.
               </p>
             </div>
           </aside>
         </form>
 
         <footer className="pt-5 text-center text-[10px] text-slate-400">
-          Street map © OpenStreetMap contributors · Satellite imagery © Esri and
-          contributors · Suggestions by Photon, address lookup by Nominatim
+          Street map © OpenStreetMap contributors · Satellite imagery © Esri and contributors · Suggestions by Photon, address lookup by Nominatim
         </footer>
       </div>
 
@@ -1051,9 +968,7 @@ function Highlight({ text, query }) {
   return (
     <>
       {text.slice(0, i)}
-      <strong className="font-bold text-slate-950">
-        {text.slice(i, i + q.length)}
-      </strong>
+      <strong className="font-bold text-slate-950">{text.slice(i, i + q.length)}</strong>
       {text.slice(i + q.length)}
     </>
   );
@@ -1074,11 +989,7 @@ function SuggestionRow({ item, active, query, onPick }) {
           <span className="block truncate text-sm text-slate-800">
             <Highlight text={item.title} query={query} />
           </span>
-          {item.subtitle && (
-            <span className="block truncate text-xs text-slate-500">
-              {item.subtitle}
-            </span>
-          )}
+          {item.subtitle && <span className="block truncate text-xs text-slate-500">{item.subtitle}</span>}
         </span>
       </button>
     </li>
@@ -1089,9 +1000,7 @@ function CoordinateCard({ label, value }) {
   return (
     <div className="flex min-w-0 flex-col gap-1.5 rounded-xl border border-slate-200 bg-slate-50 p-3">
       <span className="text-xs font-semibold text-slate-500">{label}</span>
-      <strong className="break-all font-mono text-sm text-slate-800">
-        {value}
-      </strong>
+      <strong className="break-all font-mono text-sm text-slate-800">{value}</strong>
     </div>
   );
 }
@@ -1100,9 +1009,7 @@ function SummaryRow({ label, value }) {
   return (
     <div className="flex items-start justify-between gap-3 py-3 text-xs">
       <span className="text-slate-500">{label}</span>
-      <strong className="break-all text-right font-semibold tabular-nums text-slate-800">
-        {value}
-      </strong>
+      <strong className="break-all text-right font-semibold tabular-nums text-slate-800">{value}</strong>
     </div>
   );
 }
