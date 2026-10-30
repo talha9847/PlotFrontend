@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   MapContainer,
   TileLayer,
@@ -8,30 +8,31 @@ import {
 } from "react-leaflet";
 import L from "leaflet";
 import {
-  MapPin,
-  MapPinned,
-  Navigation,
-  Search,
-  Save,
-  Printer,
   Building2,
-  CheckCircle2,
   Copy,
+  Crosshair,
+  ExternalLink,
   LocateFixed,
   LoaderCircle,
-  AlertCircle,
-  Satellite,
+  MapPin,
+  MapPinned,
   Map as MapIcon,
+  Navigation,
+  Satellite,
+  Save,
+  Search,
   X,
-  History,
-  ExternalLink,
-  Download,
-  Trash2,
-  Crosshair,
 } from "lucide-react";
+import axios from "axios";
 import "leaflet/dist/leaflet.css";
 
-/* ---------------------------------------------------------------- config */
+import SearchableSelect from "../components/common/SearchableSelect";
+import { useToast } from "../components/common/Toast";
+
+const DEFAULT_POSITION = [21.1702, 72.8311];
+const MIN_SEARCH_LENGTH = 3;
+const SEARCH_DEBOUNCE_MS = 450;
+const RECENT_SEARCHES_KEY = "project-location:recent-searches";
 
 const markerIcon = new L.Icon({
   iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
@@ -42,94 +43,70 @@ const markerIcon = new L.Icon({
   iconAnchor: [12, 41],
 });
 
-const PROJECTS = [
-  { id: "PRJ-001", name: "Green Valley Residency" },
-  { id: "PRJ-002", name: "Sunrise Industrial Park" },
-  { id: "PRJ-003", name: "Lakeview Plots" },
-];
-
-const DEFAULT_POSITION = [21.1702, 72.8311]; // Surat, Gujarat
-const MIN_CHARS = 3;
-const DEBOUNCE_MS = 450;
-const RECENT_KEY = "plot-picker:recent";
-
-/**
- * Autocomplete provider.
- * Photon (by Komoot) is built for type-ahead on OpenStreetMap data.
- * Public Nominatim forbids autocomplete, so it is kept only for reverse lookup.
- * For production, swap this for Geoapify / LocationIQ / MapTiler with an API key.
- */
-async function suggestPlaces(text, signal, [lat, lon]) {
-  const params = new URLSearchParams({
-    q: text,
-    limit: "6",
-    lang: "en",
-    lat: String(lat), // rank places near the map first
-    lon: String(lon),
-    location_bias_scale: "0.4",
-    bbox: "68.1,6.7,97.4,35.5", // India
-  });
-  const res = await fetch(`https://photon.komoot.io/api/?${params}`, { signal });
-  if (!res.ok) throw new Error("Suggestions are unavailable right now.");
-  const json = await res.json();
-  return (json.features || []).map((f) => {
-    const p = f.properties || {};
-    const title = p.name || p.street || p.city || p.state || "Unnamed place";
-    const subtitle = [p.street && p.name ? p.street : null, p.district, p.city, p.state, p.postcode]
-      .filter(Boolean)
-      .filter((v, i, a) => a.indexOf(v) === i && v !== title)
-      .join(", ");
-    return {
-      id: `${p.osm_type}${p.osm_id}-${f.geometry.coordinates.join(",")}`,
-      title,
-      subtitle,
-      full: [title, subtitle].filter(Boolean).join(", "),
-      lat: f.geometry.coordinates[1],
-      lon: f.geometry.coordinates[0],
-      type: p.osm_value || p.type || "",
-    };
-  });
+function readRecentSearches() {
+  try {
+    const value = JSON.parse(localStorage.getItem(RECENT_SEARCHES_KEY) || "[]");
+    return Array.isArray(value) ? value.slice(0, 5) : [];
+  } catch {
+    return [];
+  }
 }
 
-/**
- * Second source: Nominatim. It has different coverage from Photon, so a place
- * missing from one is sometimes in the other. Its usage policy forbids
- * type-ahead, so this only runs when the user clicks "Search more results".
- */
-async function searchNominatim(text, signal) {
-  const params = new URLSearchParams({
-    q: text,
-    format: "jsonv2",
-    limit: "6",
-    countrycodes: "in",
-    addressdetails: "1",
-  });
-  const res = await fetch(
-    `https://nominatim.openstreetmap.org/search?${params}`,
-    { signal, headers: { Accept: "application/json" } },
-  );
-  if (!res.ok) throw new Error("Search failed. Try again in a moment.");
-  const data = await res.json();
-  return data.map((r) => {
-    const [title, ...rest] = r.display_name.split(", ");
-    return {
-      id: `nom-${r.place_id}`,
-      title,
-      subtitle: rest.join(", "),
-      full: r.display_name,
-      lat: Number(r.lat),
-      lon: Number(r.lon),
-      type: r.type || "",
-    };
-  });
+function persistRecentSearches(items) {
+  try {
+    localStorage.setItem(
+      RECENT_SEARCHES_KEY,
+      JSON.stringify(items.slice(0, 5)),
+    );
+  } catch {
+    // Recent searches are optional; the picker still works without storage.
+  }
 }
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+function useDebouncedValue(value, delay) {
+  const [debouncedValue, setDebouncedValue] = useState(value);
 
-/** Strips Google Plus Codes ("4P7G+MX"), "India" and line breaks from a pasted address. */
-function cleanAddress(raw) {
-  return raw
-    .replace(/\b[23456789CFGHJMPQRVWX]{4,8}\+[23456789CFGHJMPQRVWX]{2,3}\b/gi, "")
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => setDebouncedValue(value), delay);
+    return () => window.clearTimeout(timeoutId);
+  }, [value, delay]);
+
+  return debouncedValue;
+}
+
+function parseCoordinates(value) {
+  const text = value.trim();
+  const match =
+    text.match(/!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/) ||
+    text.match(/@(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)/) ||
+    text.match(/[?&](?:q|ll|query)=(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)/) ||
+    text.match(/^(-?\d+\.?\d*)[\s,]+(-?\d+\.?\d*)$/);
+
+  if (!match) return null;
+
+  const latitude = Number(match[1]);
+  const longitude = Number(match[2]);
+
+  if (
+    !Number.isFinite(latitude) ||
+    !Number.isFinite(longitude) ||
+    latitude < -90 ||
+    latitude > 90 ||
+    longitude < -180 ||
+    longitude > 180
+  ) {
+    return null;
+  }
+
+  return [latitude, longitude];
+}
+
+function cleanAddress(value) {
+  return value
+    .replace(
+      /\b[23456789CFGHJMPQRVWX]{4,8}\+[23456789CFGHJMPQRVWX]{2,3}\b/gi,
+      "",
+    )
     .replace(/\bIndia\b/gi, "")
     .replace(/\s*\n+\s*/g, ", ")
     .replace(/\s{2,}/g, " ")
@@ -137,107 +114,316 @@ function cleanAddress(raw) {
     .replace(/^[,\s]+|[,\s]+$/g, "");
 }
 
-/** True for pasted text that looks like a full postal address (not coordinates or a link). */
-function looksLikeAddress(text) {
-  const t = text.trim();
-  if (!t || parseCoordinates(t) || /^https?:\/\//i.test(t)) return false;
-  return (t.includes(",") && t.length >= 20) || /\b\d{6}\b/.test(t);
+function looksLikeAddress(value) {
+  const text = value.trim();
+  if (!text || parseCoordinates(text) || /^https?:\/\//i.test(text)) {
+    return false;
+  }
+  return (text.includes(",") && text.length >= 20) || /\b\d{6}\b/.test(text);
 }
 
-/**
- * Searches a full address. Map data rarely knows shop or building names, so if
- * the full text finds nothing it retries without the leading parts, then with
- * only the area, city and PIN. Waits 1.1s between tries (Nominatim's limit).
- */
-async function smartAddressSearch(raw, signal) {
-  const cleaned = cleanAddress(raw);
-  const parts = cleaned.split(",").map((p) => p.trim()).filter(Boolean);
-  const attempts = [cleaned];
-  for (let i = 1; i < parts.length - 2 && attempts.length < 3; i++) {
-    attempts.push(parts.slice(i).join(", "));
-  }
-  if (parts.length > 3) attempts.push(parts.slice(-3).join(", "));
-  const unique = [...new Set(attempts)];
+function formatReadableAddress(data) {
+  const address = data?.address || {};
+  const locality =
+    address.city ||
+    address.town ||
+    address.village ||
+    address.municipality ||
+    address.city_district ||
+    address.county ||
+    address.state_district;
 
-  for (let i = 0; i < unique.length; i++) {
-    if (i > 0) await sleep(1100);
-    const items = await searchNominatim(unique[i], signal);
-    if (items.length) return { items, matched: unique[i], exact: i === 0 };
+  const area =
+    address.neighbourhood ||
+    address.suburb ||
+    address.quarter ||
+    address.residential ||
+    address.hamlet;
+
+  const parts = [
+    data?.name,
+    address.road,
+    area,
+    locality,
+    address.state,
+    address.postcode,
+    address.country,
+  ];
+
+  const seen = new Set();
+
+  return parts
+    .filter(Boolean)
+    .map((part) => String(part).trim())
+    .filter((part) => {
+      const normalized = part.toLowerCase();
+      if (!part || seen.has(normalized)) return false;
+      seen.add(normalized);
+      return true;
+    })
+    .join(", ");
+}
+
+async function suggestPlaces(searchText, signal, [latitude, longitude]) {
+  const params = new URLSearchParams({
+    q: searchText,
+    limit: "6",
+    lang: "en",
+    lat: String(latitude),
+    lon: String(longitude),
+    location_bias_scale: "0.4",
+    bbox: "68.1,6.7,97.4,35.5",
+  });
+
+  const response = await fetch(
+    `https://photon.komoot.io/api/?${params.toString()}`,
+    { signal },
+  );
+
+  if (!response.ok) {
+    throw new Error("Location suggestions are unavailable right now.");
   }
+
+  const result = await response.json();
+
+  return (result.features || []).map((feature) => {
+    const properties = feature.properties || {};
+    const title =
+      properties.name ||
+      properties.street ||
+      properties.city ||
+      properties.state ||
+      "Unnamed place";
+
+    const subtitle = [
+      properties.street && properties.name ? properties.street : null,
+      properties.district,
+      properties.city,
+      properties.state,
+      properties.postcode,
+    ]
+      .filter(Boolean)
+      .filter(
+        (part, index, list) => list.indexOf(part) === index && part !== title,
+      )
+      .join(", ");
+
+    return {
+      id: `${properties.osm_type}${properties.osm_id}-${feature.geometry.coordinates.join(",")}`,
+      title,
+      subtitle,
+      full: [title, subtitle].filter(Boolean).join(", "),
+      latitude: Number(feature.geometry.coordinates[1]),
+      longitude: Number(feature.geometry.coordinates[0]),
+    };
+  });
+}
+
+async function searchNominatim(searchText, signal) {
+  const params = new URLSearchParams({
+    q: searchText,
+    format: "jsonv2",
+    limit: "6",
+    countrycodes: "in",
+    addressdetails: "1",
+  });
+
+  const response = await fetch(
+    `https://nominatim.openstreetmap.org/search?${params.toString()}`,
+    {
+      signal,
+      headers: { Accept: "application/json" },
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error("Address search failed. Please try again.");
+  }
+
+  const results = await response.json();
+
+  return results.map((item) => {
+    const [title, ...rest] = item.display_name.split(", ");
+    return {
+      id: `nominatim-${item.place_id}`,
+      title,
+      subtitle: rest.join(", "),
+      full: item.display_name,
+      latitude: Number(item.lat),
+      longitude: Number(item.lon),
+    };
+  });
+}
+
+async function searchAddressWithFallback(rawAddress, signal) {
+  const cleaned = cleanAddress(rawAddress);
+  const parts = cleaned
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  const attempts = [cleaned];
+
+  for (
+    let index = 1;
+    index < parts.length - 2 && attempts.length < 3;
+    index += 1
+  ) {
+    attempts.push(parts.slice(index).join(", "));
+  }
+
+  if (parts.length > 3) {
+    attempts.push(parts.slice(-3).join(", "));
+  }
+
+  const uniqueAttempts = [...new Set(attempts)];
+
+  for (let index = 0; index < uniqueAttempts.length; index += 1) {
+    if (index > 0) {
+      await new Promise((resolve) => window.setTimeout(resolve, 1100));
+    }
+
+    const items = await searchNominatim(uniqueAttempts[index], signal);
+
+    if (items.length) {
+      return {
+        items,
+        matched: uniqueAttempts[index],
+        exact: index === 0,
+      };
+    }
+  }
+
   return { items: [], matched: "", exact: false };
 }
 
-/**
- * Accepts "21.17, 72.83", "21.17 72.83" or a full Google Maps URL
- * (!3d..!4d.. place pin, @lat,lng, or ?q=lat,lng).
- * Short links (maps.app.goo.gl) cannot be read; open them and copy the full URL.
- */
-function parseCoordinates(text) {
-  const t = text.trim();
-  const m =
-    t.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/) ||
-    t.match(/@(-?\d+\.\d+),\s*(-?\d+\.\d+)/) ||
-    t.match(/[?&](?:q|ll|query)=(-?\d+\.\d+),\s*(-?\d+\.\d+)/) ||
-    t.match(/^(-?\d+\.?\d*)[\s,]+(-?\d+\.?\d*)$/);
-  if (!m) return null;
-  const lat = Number(m[1]);
-  const lon = Number(m[2]);
-  if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
-  return [lat, lon];
-}
-
-function loadRecent() {
-  try {
-    return JSON.parse(localStorage.getItem(RECENT_KEY) || "[]");
-  } catch {
-    return [];
-  }
-}
-
-function saveRecent(list) {
-  try {
-    localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, 5)));
-  } catch {
-    /* storage unavailable: recent searches simply won't persist */
-  }
-}
-
-function useDebounced(value, delay) {
-  const [v, setV] = useState(value);
-  useEffect(() => {
-    const id = setTimeout(() => setV(value), delay);
-    return () => clearTimeout(id);
-  }, [value, delay]);
-  return v;
-}
-
-/* ------------------------------------------------------------ map helpers */
-
 function MapClickHandler({ onPick }) {
   useMapEvents({
-    click(e) {
-      onPick([e.latlng.lat, e.latlng.lng]);
+    click(event) {
+      onPick([event.latlng.lat, event.latlng.lng]);
     },
   });
+
   return null;
 }
 
 function MapFlyTo({ target }) {
   const map = useMap();
+
   useEffect(() => {
     if (!target) return;
-    map.flyTo(target.coords, Math.max(map.getZoom(), target.zoom || 16), {
+
+    map.flyTo(target, Math.max(map.getZoom(), 16), {
       duration: 0.8,
     });
   }, [map, target]);
+
   return null;
 }
 
-/* -------------------------------------------------------------- component */
+function StepHeading({ number, title, description }) {
+  return (
+    <div className="mb-5 flex items-start gap-3">
+      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-emerald-50 text-sm font-bold text-emerald-800">
+        {number}
+      </span>
+      <div>
+        <h2 className="font-semibold text-slate-900">{title}</h2>
+        <p className="mt-1 text-xs leading-5 text-slate-500">{description}</p>
+      </div>
+    </div>
+  );
+}
 
-export default function PlotLocationPicker({ onSave }) {
-  const [projectId, setProjectId] = useState(PROJECTS[0].id);
-  const [plotName, setPlotName] = useState("");
+function LayerButton({ active, onClick, icon: Icon, children }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold transition ${
+        active
+          ? "border-emerald-700 bg-emerald-700 text-white"
+          : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+      }`}
+    >
+      <Icon className="h-3.5 w-3.5" />
+      {children}
+    </button>
+  );
+}
+
+function SuggestionItem({ item, query, active, onSelect }) {
+  const search = query.trim();
+  const matchIndex = search
+    ? item.title.toLowerCase().indexOf(search.toLowerCase())
+    : -1;
+
+  return (
+    <li role="option" aria-selected={Boolean(active)}>
+      <button
+        type="button"
+        onClick={() => onSelect(item)}
+        className={`flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left transition hover:bg-emerald-50 ${
+          active ? "bg-emerald-50" : ""
+        }`}
+      >
+        <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
+        <span className="min-w-0">
+          <span className="block truncate text-sm text-slate-800">
+            {matchIndex < 0 ? (
+              item.title
+            ) : (
+              <>
+                {item.title.slice(0, matchIndex)}
+                <strong className="font-bold text-slate-950">
+                  {item.title.slice(matchIndex, matchIndex + search.length)}
+                </strong>
+                {item.title.slice(matchIndex + search.length)}
+              </>
+            )}
+          </span>
+          {item.subtitle && (
+            <span className="block truncate text-xs text-slate-500">
+              {item.subtitle}
+            </span>
+          )}
+        </span>
+      </button>
+    </li>
+  );
+}
+
+function CoordinateCard({ label, value }) {
+  return (
+    <div className="flex min-w-0 flex-col gap-1.5 rounded-xl border border-slate-200 bg-slate-50 p-3">
+      <span className="text-xs font-semibold text-slate-500">{label}</span>
+      <strong className="break-all font-mono text-sm text-slate-800">
+        {value}
+      </strong>
+    </div>
+  );
+}
+
+function SummaryRow({ label, value }) {
+  return (
+    <div className="flex items-start justify-between gap-3 py-3 text-xs">
+      <span className="text-slate-500">{label}</span>
+      <strong className="break-all text-right font-semibold tabular-nums text-slate-800">
+        {value}
+      </strong>
+    </div>
+  );
+}
+
+export default function ProjectLocationPicker({ onSave }) {
+  const notify = useToast();
+
+  const [projectId, setProjectId] = useState("");
+  const [projectOptions, setProjectOptions] = useState([]);
+  const [projectsLoading, setProjectsLoading] = useState(true);
+  const [projectLocationLoading, setProjectLocationLoading] = useState(false);
+
   const [position, setPosition] = useState(DEFAULT_POSITION);
   const [flyTarget, setFlyTarget] = useState(null);
   const [address, setAddress] = useState("");
@@ -245,297 +431,563 @@ export default function PlotLocationPicker({ onSave }) {
 
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState([]);
-  const [open, setOpen] = useState(false);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const [searchLoading, setSearchLoading] = useState(false);
-  const [recent, setRecent] = useState(loadRecent);
+  const [moreLoading, setMoreLoading] = useState(false);
+  const [recentSearches, setRecentSearches] = useState(readRecentSearches);
 
   const [addressLoading, setAddressLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [satellite, setSatellite] = useState(false);
-  const [message, setMessage] = useState("");
-  const [messageType, setMessageType] = useState("info");
-  const [savedPlots, setSavedPlots] = useState([]);
-  const [errors, setErrors] = useState({});
 
   const searchBoxRef = useRef(null);
-  const reverseAbort = useRef(null);
-  const posRef = useRef(position);
-  posRef.current = position; // lets the suggestion effect read the pin without re-running when it moves
-  const [moreLoading, setMoreLoading] = useState(false);
-  const skipAutoRef = useRef(""); // query already handled by the address search
-  const debouncedQuery = useDebounced(query, DEBOUNCE_MS);
+  const reverseLookupController = useRef(null);
+  const projectLocationController = useRef(null);
+  const positionRef = useRef(position);
+  const skipAutocompleteFor = useRef("");
+
+  positionRef.current = position;
+
+  const debouncedQuery = useDebouncedValue(query, SEARCH_DEBOUNCE_MS);
+  const pastedCoordinates = useMemo(() => parseCoordinates(query), [query]);
 
   const selectedProject = useMemo(
-    () => PROJECTS.find((p) => p.id === projectId),
-    [projectId],
+    () => projectOptions.find((project) => project.value === projectId),
+    [projectOptions, projectId],
   );
-  const pastedCoords = useMemo(() => parseCoordinates(query), [query]);
 
-  const notify = useCallback((text, type = "info") => {
-    setMessage(text);
-    setMessageType(type);
-  }, []);
+  const googleMapsUrl = useMemo(
+    () =>
+      `https://www.google.com/maps?q=${position[0].toFixed(7)},${position[1].toFixed(7)}`,
+    [position],
+  );
 
-  /* Fetch suggestions while typing (debounced, cancels stale requests) */
-  useEffect(() => {
-    const text = debouncedQuery.trim();
-    if (text === skipAutoRef.current) return;
-    if (text.length < MIN_CHARS || parseCoordinates(text)) {
-      setSuggestions([]);
-      setSearchLoading(false);
-      return;
-    }
-    const controller = new AbortController();
-    setSearchLoading(true);
-    suggestPlaces(text, controller.signal, posRef.current)
-      .then((items) => {
-        setSuggestions(items);
-        setActiveIndex(-1);
-      })
-      .catch((err) => {
-        if (err.name !== "AbortError") {
-          setSuggestions([]);
-          notify(err.message, "warning");
-        }
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setSearchLoading(false);
+  const tileUrl = satellite
+    ? "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+    : "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+
+  const tileAttribution = satellite
+    ? "Tiles &copy; Esri, Maxar, Earthstar Geographics"
+    : '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors';
+
+  const queryReady =
+    debouncedQuery.trim().length >= MIN_SEARCH_LENGTH && !pastedCoordinates;
+
+  const showDropdown =
+    dropdownOpen &&
+    (suggestions.length > 0 ||
+      Boolean(pastedCoordinates) ||
+      queryReady ||
+      (query.trim().length < MIN_SEARCH_LENGTH && recentSearches.length > 0));
+
+  const loadProjects = useCallback(async () => {
+    setProjectsLoading(true);
+
+    try {
+      const response = await axios.get("/api/plots/projects", {
+        withCredentials: true,
       });
-    return () => controller.abort();
-  }, [debouncedQuery, notify]);
 
-  /* Close the dropdown when clicking outside it */
-  useEffect(() => {
-    function onDown(e) {
-      if (searchBoxRef.current && !searchBoxRef.current.contains(e.target)) {
-        setOpen(false);
+      const projects = response.data?.data?.projects;
+
+      if (!Array.isArray(projects)) {
+        throw new Error("The projects API returned an invalid response.");
       }
-    }
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, []);
 
-  /* Reverse geocode (Nominatim, one request at a time, only on explicit pin moves) */
-  const lookupAddress = useCallback(
-    async (coords, { silent = false } = {}) => {
-      reverseAbort.current?.abort();
+      const options = projects
+        .filter((project) => project.uuid && project.name)
+        .map((project) => ({
+          value: String(project.uuid),
+          label: project.name,
+        }));
+
+      setProjectOptions(options);
+      setProjectId("");
+    } catch (error) {
+      setProjectOptions([]);
+      setProjectId("");
+      notify(
+        error.response?.data?.message ||
+          error.message ||
+          "Unable to load projects.",
+        "error",
+      );
+    } finally {
+      setProjectsLoading(false);
+    }
+  }, [notify]);
+
+  const handleProjectChange = useCallback(
+    async (selected) => {
+      const selectedUuid =
+        typeof selected === "string"
+          ? selected
+          : (selected?.target?.value ?? selected?.value ?? "");
+
+      const uuid = String(selectedUuid);
+
+      projectLocationController.current?.abort();
+      setProjectId(uuid);
+      setAddress("");
+      setQuery("");
+      setSuggestions([]);
+      setDropdownOpen(false);
+
+      if (!uuid) {
+        setPosition(DEFAULT_POSITION);
+        setFlyTarget(DEFAULT_POSITION);
+        setProjectLocationLoading(false);
+        return;
+      }
+
       const controller = new AbortController();
-      reverseAbort.current = controller;
-      setAddressLoading(true);
+      projectLocationController.current = controller;
+      setProjectLocationLoading(true);
+
       try {
-        const params = new URLSearchParams({
-          format: "jsonv2",
-          lat: String(coords[0]),
-          lon: String(coords[1]),
-        });
-        const res = await fetch(
-          `https://nominatim.openstreetmap.org/reverse?${params}`,
-          { signal: controller.signal, headers: { Accept: "application/json" } },
+        const response = await axios.get(
+          `/api/projects/${encodeURIComponent(uuid)}/location`,
+          {
+            withCredentials: true,
+            signal: controller.signal,
+          },
         );
-        if (!res.ok) throw new Error("Address lookup failed. Enter it manually.");
-        const data = await res.json();
-        setAddress(data.display_name || "");
-        if (!silent) {
-          notify(
-            data.display_name
-              ? "Address found. Check it before saving."
-              : "No address found for this pin. Enter it manually.",
-            data.display_name ? "success" : "warning",
+
+        if (controller.signal.aborted) return;
+
+        if (!response.data?.success) {
+          throw new Error(
+            response.data?.message || "Unable to fetch project location.",
           );
         }
-      } catch (err) {
-        if (err.name !== "AbortError") {
-          notify(err.message || "Could not look up the address.", "warning");
+
+        const project = response.data?.data;
+        const latitude = Number(project?.latitude);
+        const longitude = Number(project?.longitude);
+
+        if (
+          project?.latitude !== null &&
+          project?.latitude !== undefined &&
+          project?.longitude !== null &&
+          project?.longitude !== undefined &&
+          Number.isFinite(latitude) &&
+          Number.isFinite(longitude)
+        ) {
+          const savedPosition = [latitude, longitude];
+          setPosition(savedPosition);
+          setFlyTarget(savedPosition);
+          setAddress(project.address_line1 || "");
+          notify("Existing project location loaded.", "success");
+        } else {
+          setPosition(DEFAULT_POSITION);
+          setFlyTarget(DEFAULT_POSITION);
+          setAddress("");
+          notify(
+            "No location saved for this project. Select a location on the map.",
+            "info",
+          );
+        }
+      } catch (error) {
+        if (error.code !== "ERR_CANCELED" && error.name !== "CanceledError") {
+          setPosition(DEFAULT_POSITION);
+          setFlyTarget(DEFAULT_POSITION);
+          setAddress("");
+          notify(
+            error.response?.data?.message ||
+              error.message ||
+              "Failed to fetch project location.",
+            "error",
+          );
         }
       } finally {
-        if (reverseAbort.current === controller) setAddressLoading(false);
+        if (projectLocationController.current === controller) {
+          projectLocationController.current = null;
+          setProjectLocationLoading(false);
+        }
       }
     },
     [notify],
   );
 
-  function movePin(coords, { fly = false, reverse = true } = {}) {
-    setPosition(coords);
-    if (fly) setFlyTarget({ coords, zoom: 17, at: Date.now() });
-    if (reverse && autoAddress) lookupAddress(coords, { silent: true });
-  }
+  useEffect(() => {
+    loadProjects();
+  }, [loadProjects]);
 
-  function chooseSuggestion(item) {
-    const coords = [item.lat, item.lon];
-    setPosition(coords);
-    setFlyTarget({ coords, zoom: 17, at: Date.now() });
-    setAddress(item.full);
-    setQuery(item.full);
-    setSuggestions([]);
-    setOpen(false);
-    const next = [item, ...recent.filter((r) => r.id !== item.id)];
-    setRecent(next.slice(0, 5));
-    saveRecent(next);
-    notify("Location selected. Drag the pin onto the exact plot.", "success");
-  }
+  useEffect(() => {
+    const searchText = debouncedQuery.trim();
 
-  function usePastedCoordinates() {
-    if (!pastedCoords) return;
-    movePin(pastedCoords, { fly: true });
-    setOpen(false);
-    notify("Pin moved to the pasted coordinates.", "success");
-  }
+    if (searchText === skipAutocompleteFor.current) {
+      skipAutocompleteFor.current = "";
+      return;
+    }
 
-  async function runMoreSearch(override, replace = false) {
-    const text = (typeof override === "string" ? override : query).trim();
-    if (text.length < MIN_CHARS) return;
-    skipAutoRef.current = text;
-    setMoreLoading(true);
-    try {
-      const { items, matched, exact } = await smartAddressSearch(text);
-      // Merge with the type-ahead results, dropping near-duplicates
-      const base = replace ? [] : suggestions;
-      const seen = new Set(base.map((s) => `${s.lat.toFixed(4)},${s.lon.toFixed(4)}`));
-      const extra = items.filter((i) => !seen.has(`${i.lat.toFixed(4)},${i.lon.toFixed(4)}`));
-      setSuggestions([...base, ...extra]);
-      setActiveIndex(-1);
-      setOpen(true);
-      if (!items.length) {
-        notify("No match for that address. Try the area name or PIN code.", "warning");
-      } else if (!exact) {
-        notify(`Exact address not found. Showing matches for "${matched}". Drag the pin onto the plot.`, "info");
+    if (searchText.length < MIN_SEARCH_LENGTH || parseCoordinates(searchText)) {
+      setSuggestions([]);
+      setSearchLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    setSearchLoading(true);
+
+    suggestPlaces(searchText, controller.signal, positionRef.current)
+      .then((items) => {
+        setSuggestions(items);
+        setActiveIndex(-1);
+      })
+      .catch((error) => {
+        if (error.name !== "AbortError") {
+          setSuggestions([]);
+          notify(error.message || "Location search failed.", "warning");
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setSearchLoading(false);
+        }
+      });
+
+    return () => controller.abort();
+  }, [debouncedQuery, notify]);
+
+  useEffect(() => {
+    function handleOutsideClick(event) {
+      if (
+        searchBoxRef.current &&
+        !searchBoxRef.current.contains(event.target)
+      ) {
+        setDropdownOpen(false);
       }
-    } catch (err) {
-      notify(err.message || "Search failed. Try again in a moment.", "warning");
-    } finally {
-      setMoreLoading(false);
     }
-  }
 
-  /** Pasting a full address (for example copied from Google Maps) searches it straight away. */
-  function onSearchPaste(e) {
-    const text = e.clipboardData?.getData("text") || "";
-    if (!looksLikeAddress(text)) return;
-    e.preventDefault();
-    const cleaned = cleanAddress(text);
-    setQuery(cleaned);
-    setSuggestions([]);
-    runMoreSearch(cleaned, true);
-  }
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, []);
 
-  function onSearchKeyDown(e) {
-    const list = suggestions;
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      setOpen(true);
-      setActiveIndex((i) => (i + 1) % Math.max(list.length, 1));
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      setActiveIndex((i) => (i <= 0 ? list.length - 1 : i - 1));
-    } else if (e.key === "Enter") {
-      e.preventDefault();
-      if (pastedCoords) usePastedCoordinates();
-      else if (activeIndex >= 0 && list[activeIndex]) chooseSuggestion(list[activeIndex]);
-      else if (list[0]) chooseSuggestion(list[0]);
-    } else if (e.key === "Escape") {
-      setOpen(false);
-    }
-  }
+  useEffect(
+    () => () => {
+      reverseLookupController.current?.abort();
+      projectLocationController.current?.abort();
+    },
+    [],
+  );
 
-  function useMyLocation() {
+  const lookupAddress = useCallback(
+    async (coordinates, { silent = false } = {}) => {
+      reverseLookupController.current?.abort();
+
+      const controller = new AbortController();
+      reverseLookupController.current = controller;
+      setAddressLoading(true);
+
+      try {
+        const params = new URLSearchParams({
+          format: "jsonv2",
+          lat: String(coordinates[0]),
+          lon: String(coordinates[1]),
+        });
+
+        const response = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?${params.toString()}`,
+          {
+            signal: controller.signal,
+            headers: { Accept: "application/json" },
+          },
+        );
+
+        if (!response.ok) {
+          throw new Error("Address lookup failed. You can enter it manually.");
+        }
+
+        const result = await response.json();
+        const readableAddress =
+          formatReadableAddress(result) || result.display_name || "";
+
+        setAddress(readableAddress);
+
+        if (!silent) {
+          notify(
+            readableAddress
+              ? "Address found. Please verify it before saving."
+              : "No address found for this pin. Enter it manually.",
+            readableAddress ? "success" : "warning",
+          );
+        }
+      } catch (error) {
+        if (error.name !== "AbortError") {
+          notify(error.message || "Unable to look up this address.", "warning");
+        }
+      } finally {
+        if (reverseLookupController.current === controller) {
+          setAddressLoading(false);
+        }
+      }
+    },
+    [notify],
+  );
+
+  const movePin = useCallback(
+    (coordinates, { fly = false, reverse = true } = {}) => {
+      setPosition(coordinates);
+
+      if (fly) {
+        setFlyTarget(coordinates);
+      }
+
+      if (reverse && autoAddress) {
+        lookupAddress(coordinates, { silent: true });
+      }
+    },
+    [autoAddress, lookupAddress],
+  );
+
+  const selectSuggestion = useCallback(
+    (item) => {
+      const coordinates = [item.latitude, item.longitude];
+
+      setPosition(coordinates);
+      setFlyTarget(coordinates);
+      setAddress(item.full);
+      setQuery(item.full);
+      setSuggestions([]);
+      setDropdownOpen(false);
+      setActiveIndex(-1);
+
+      const nextSearches = [
+        item,
+        ...recentSearches.filter((recent) => recent.id !== item.id),
+      ].slice(0, 5);
+
+      setRecentSearches(nextSearches);
+      persistRecentSearches(nextSearches);
+
+      notify(
+        "Location selected. Adjust the pin to the exact project location.",
+        "success",
+      );
+    },
+    [notify, recentSearches],
+  );
+
+  const usePastedCoordinates = useCallback(() => {
+    if (!pastedCoordinates) return;
+
+    movePin(pastedCoordinates, { fly: true });
+    setDropdownOpen(false);
+    notify("Map pin moved to the entered coordinates.", "success");
+  }, [movePin, notify, pastedCoordinates]);
+
+  const searchMoreResults = useCallback(
+    async (overrideText, replace = false) => {
+      const searchText = (
+        typeof overrideText === "string" ? overrideText : query
+      ).trim();
+
+      if (searchText.length < MIN_SEARCH_LENGTH) return;
+
+      skipAutocompleteFor.current = searchText;
+      setMoreLoading(true);
+
+      const controller = new AbortController();
+
+      try {
+        const { items, matched, exact } = await searchAddressWithFallback(
+          searchText,
+          controller.signal,
+        );
+
+        const existing = replace ? [] : suggestions;
+        const seenCoordinates = new Set(
+          existing.map(
+            (item) =>
+              `${item.latitude.toFixed(4)},${item.longitude.toFixed(4)}`,
+          ),
+        );
+
+        const additionalItems = items.filter(
+          (item) =>
+            !seenCoordinates.has(
+              `${item.latitude.toFixed(4)},${item.longitude.toFixed(4)}`,
+            ),
+        );
+
+        setSuggestions([...existing, ...additionalItems]);
+        setActiveIndex(-1);
+        setDropdownOpen(true);
+
+        if (!items.length) {
+          notify(
+            "No matching address found. Try an area, city, or PIN code.",
+            "warning",
+          );
+        } else if (!exact) {
+          notify(
+            `Showing matches for "${matched}". Please adjust the pin to the exact location.`,
+            "info",
+          );
+        }
+      } catch (error) {
+        if (error.name !== "AbortError") {
+          notify(error.message || "Address search failed.", "warning");
+        }
+      } finally {
+        setMoreLoading(false);
+      }
+    },
+    [notify, query, suggestions],
+  );
+
+  const handleSearchPaste = useCallback(
+    (event) => {
+      const pastedText = event.clipboardData?.getData("text") || "";
+
+      if (!looksLikeAddress(pastedText)) return;
+
+      event.preventDefault();
+
+      const cleanedAddress = cleanAddress(pastedText);
+      setQuery(cleanedAddress);
+      setSuggestions([]);
+      searchMoreResults(cleanedAddress, true);
+    },
+    [searchMoreResults],
+  );
+
+  const handleSearchKeyDown = useCallback(
+    (event) => {
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        setDropdownOpen(true);
+        setActiveIndex(
+          (current) => (current + 1) % Math.max(suggestions.length, 1),
+        );
+      } else if (event.key === "ArrowUp") {
+        event.preventDefault();
+        setActiveIndex((current) =>
+          current <= 0 ? suggestions.length - 1 : current - 1,
+        );
+      } else if (event.key === "Enter") {
+        event.preventDefault();
+
+        if (pastedCoordinates) {
+          usePastedCoordinates();
+        } else if (activeIndex >= 0 && suggestions[activeIndex]) {
+          selectSuggestion(suggestions[activeIndex]);
+        } else if (suggestions[0]) {
+          selectSuggestion(suggestions[0]);
+        }
+      } else if (event.key === "Escape") {
+        setDropdownOpen(false);
+      }
+    },
+    [
+      activeIndex,
+      pastedCoordinates,
+      selectSuggestion,
+      suggestions,
+      usePastedCoordinates,
+    ],
+  );
+
+  const useMyLocation = useCallback(() => {
     if (!navigator.geolocation) {
       notify("Geolocation is not supported by this browser.", "warning");
       return;
     }
+
     navigator.geolocation.getCurrentPosition(
-      ({ coords }) => movePin([coords.latitude, coords.longitude], { fly: true }),
-      () => notify("Could not access your location. Check browser permissions.", "warning"),
+      ({ coords }) =>
+        movePin([coords.latitude, coords.longitude], { fly: true }),
+      () =>
+        notify(
+          "Unable to access your location. Check your browser permissions.",
+          "warning",
+        ),
       { enableHighAccuracy: true, timeout: 10000 },
     );
-  }
+  }, [movePin, notify]);
 
-  function validate() {
-    const next = {};
-    if (!plotName.trim()) next.plotName = "Enter a plot or unit number.";
-    else if (
-      savedPlots.some(
-        (p) =>
-          p.projectId === projectId &&
-          p.plotName.toLowerCase() === plotName.trim().toLowerCase(),
-      )
-    )
-      next.plotName = "This plot is already saved for this project.";
-    setErrors(next);
-    return Object.keys(next).length === 0;
-  }
+  const copyCoordinates = useCallback(async () => {
+    const coordinates = `${position[0].toFixed(7)}, ${position[1].toFixed(7)}`;
 
-  function handleSave(e) {
-    e.preventDefault();
-    if (!validate()) return;
-    const record = {
-      id: crypto.randomUUID?.() || String(Date.now()),
-      projectId: selectedProject.id,
-      projectName: selectedProject.name,
-      plotName: plotName.trim(),
-      address: address.trim(),
-      latitude: Number(position[0].toFixed(7)),
-      longitude: Number(position[1].toFixed(7)),
-      savedAt: new Date().toISOString(),
-    };
-    setSavedPlots((list) => [record, ...list]);
-    onSave?.(record); // plug your API call in here
-    setPlotName("");
-    setAddress("");
-    setQuery("");
-    notify(`Saved ${record.plotName}. Add the next plot or export the list.`, "success");
-  }
-
-  function removePlot(id) {
-    setSavedPlots((list) => list.filter((p) => p.id !== id));
-  }
-
-  function flyToPlot(plot) {
-    const coords = [plot.latitude, plot.longitude];
-    setPosition(coords);
-    setFlyTarget({ coords, zoom: 17, at: Date.now() });
-    setAddress(plot.address);
-  }
-
-  function exportCsv() {
-    const header = ["Project ID", "Project", "Plot", "Address", "Latitude", "Longitude", "Saved at"];
-    const rows = savedPlots.map((p) =>
-      [p.projectId, p.projectName, p.plotName, p.address, p.latitude, p.longitude, p.savedAt]
-        .map((v) => `"${String(v).replace(/"/g, '""')}"`)
-        .join(","),
-    );
-    const blob = new Blob([[header.join(","), ...rows].join("\n")], { type: "text/csv" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "plot-locations.csv";
-    a.click();
-    URL.revokeObjectURL(a.href);
-  }
-
-  async function copyCoordinates() {
-    const text = `${position[0].toFixed(7)}, ${position[1].toFixed(7)}`;
     try {
-      await navigator.clipboard.writeText(text);
-      notify("Coordinates copied to clipboard.", "success");
+      await navigator.clipboard.writeText(coordinates);
+      notify("Coordinates copied.", "success");
     } catch {
-      notify(`Coordinates: ${text}`, "info");
+      notify(`Coordinates: ${coordinates}`, "info");
     }
-  }
+  }, [notify, position]);
 
-  const googleMapsUrl = `https://www.google.com/maps?q=${position[0]},${position[1]}`;
-  const tileUrl = satellite
-    ? "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-    : "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
-  const tileAttribution = satellite
-    ? "Tiles &copy; Esri, Maxar, Earthstar Geographics"
-    : '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors';
+  const handleSave = async (event) => {
+    event.preventDefault();
 
-  const queryReady = query.trim().length >= MIN_CHARS && !pastedCoords;
-  const showDropdown =
-    open &&
-    (suggestions.length > 0 ||
-      pastedCoords ||
-      queryReady ||
-      (query.trim().length < MIN_CHARS && recent.length > 0));
+    if (saving || projectLocationLoading) return;
+
+    if (!projectId) {
+      notify("Please select a project.", "warning");
+      return;
+    }
+
+    if (!address.trim()) {
+      notify("Please enter or find the project address.", "warning");
+      return;
+    }
+
+    const latitude = Number(position[0].toFixed(7));
+    const longitude = Number(position[1].toFixed(7));
+
+    const payload = {
+      address: address.trim(),
+      latitude,
+      longitude,
+    };
+
+    setSaving(true);
+
+    try {
+      const response = await axios.patch(
+        `/api/projects/${encodeURIComponent(projectId)}/location`,
+        payload,
+        {
+          withCredentials: true,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+
+      if (!response.data?.success) {
+        throw new Error(
+          response.data?.message || "Unable to update project location.",
+        );
+      }
+
+      const savedProject = response.data.data;
+
+      // The API save has succeeded; a parent callback failure must not
+      // incorrectly make the user think the database update failed.
+      try {
+        onSave?.(savedProject);
+      } catch {
+        notify(
+          "Location saved, but the parent update callback failed.",
+          "warning",
+        );
+      }
+
+      setQuery("");
+      setSuggestions([]);
+      notify("Project location saved successfully.", "success");
+    } catch (error) {
+      notify(
+        error.response?.data?.message ||
+          error.message ||
+          "Failed to save project location.",
+        "error",
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-8 text-slate-900 sm:px-6 lg:px-8">
@@ -543,13 +995,14 @@ export default function PlotLocationPicker({ onSave }) {
         <header className="mb-7">
           <div className="mb-2 flex items-center gap-2 text-xs font-bold text-emerald-700">
             <MapPinned className="h-4 w-4" />
-            CRM / Property management
+            CRM / Project management
           </div>
           <h1 className="text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl">
-            Plot location
+            Project location
           </h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
-            Search a place or paste coordinates, then drag the pin onto the exact plot.
+            Select a project, search for its location, and adjust the map pin to
+            set its coordinates.
           </p>
         </header>
 
@@ -558,65 +1011,75 @@ export default function PlotLocationPicker({ onSave }) {
           className="grid items-start gap-5 lg:grid-cols-[minmax(0,1.6fr)_minmax(300px,0.8fr)]"
         >
           <section className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
-            <StepHeader n="1" title="Plot details" hint="Choose the project and identify the plot." />
+            <StepHeading
+              number="1"
+              title="Select project"
+              description="Choose the project whose location you want to update."
+            />
 
-            <label htmlFor="project" className="mb-2 block text-xs font-semibold text-slate-700">
+            <label
+              htmlFor="project"
+              className="mb-2 block text-xs font-semibold text-slate-700"
+            >
               Project <span className="text-rose-600">*</span>
             </label>
+
             <div className="relative">
-              <Building2 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <select
-                id="project"
+              <SearchableSelect
+                label="Select Project"
+                name="projectId"
+                placeholder={
+                  projectsLoading ? "Loading projects..." : "Select project"
+                }
+                searchPlaceholder="Search projects..."
+                options={[
+                  { value: "", label: "Select project" },
+                  ...projectOptions,
+                ]}
                 value={projectId}
-                onChange={(e) => setProjectId(e.target.value)}
-                className="w-full appearance-none rounded-xl border border-slate-200 bg-white py-3 pl-10 pr-10 text-sm outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
-              >
-                {PROJECTS.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">▼</span>
+                disabled={
+                  projectsLoading ||
+                  projectLocationLoading ||
+                  projectOptions.length === 0
+                }
+                onChange={handleProjectChange}
+              />
+              {projectLocationLoading && (
+                <div className="mt-2 flex items-center gap-2 text-xs font-medium text-emerald-700">
+                  <LoaderCircle className="h-4 w-4 animate-spin" />
+                  Loading saved project location...
+                </div>
+              )}
             </div>
 
-            <label htmlFor="plotName" className="mb-2 mt-5 block text-xs font-semibold text-slate-700">
-              Plot / unit number <span className="text-rose-600">*</span>
-            </label>
-            <input
-              id="plotName"
-              value={plotName}
-              onChange={(e) => {
-                setPlotName(e.target.value);
-                if (errors.plotName) setErrors({});
-              }}
-              placeholder="e.g. Plot A-104"
-              aria-invalid={Boolean(errors.plotName)}
-              className={`w-full rounded-xl border px-3.5 py-3 text-sm outline-none transition placeholder:text-slate-400 focus:ring-4 ${
-                errors.plotName
-                  ? "border-rose-400 focus:border-rose-500 focus:ring-rose-500/10"
-                  : "border-slate-200 focus:border-emerald-500 focus:ring-emerald-500/10"
-              }`}
-            />
-            {errors.plotName && <p className="mt-1.5 text-xs text-rose-600">{errors.plotName}</p>}
+            {!projectsLoading && projectOptions.length === 0 && (
+              <p className="mt-2 text-xs text-amber-700">
+                No projects are available. Check your project permissions or try
+                refreshing the page.
+              </p>
+            )}
 
             <div className="mt-8">
-              <StepHeader n="2" title="Find and pin the location" hint="Type a place, pick a suggestion, or paste coordinates or a Google Maps link." />
+              <StepHeading
+                number="2"
+                title="Find project location"
+                description="Search a place, paste an address or coordinates, or move the pin manually."
+              />
             </div>
 
-            {/* ---- search with suggestions ---- */}
             <div className="relative" ref={searchBoxRef}>
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+
               <input
                 value={query}
-                onChange={(e) => {
-                  setQuery(e.target.value);
-                  setOpen(true);
+                onChange={(event) => {
+                  setQuery(event.target.value);
+                  setDropdownOpen(true);
                 }}
-                onFocus={() => setOpen(true)}
-                onKeyDown={onSearchKeyDown}
-                onPaste={onSearchPaste}
-                placeholder="Search a place, paste an address, or paste lat, lng"
+                onFocus={() => setDropdownOpen(true)}
+                onKeyDown={handleSearchKeyDown}
+                onPaste={handleSearchPaste}
+                placeholder="Search a place, paste an address, or enter lat, lng"
                 aria-label="Search location"
                 role="combobox"
                 aria-expanded={showDropdown}
@@ -624,6 +1087,7 @@ export default function PlotLocationPicker({ onSave }) {
                 autoComplete="off"
                 className="w-full rounded-xl border border-slate-200 py-3 pl-10 pr-10 text-sm outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
               />
+
               <div className="absolute right-3 top-1/2 -translate-y-1/2">
                 {searchLoading ? (
                   <LoaderCircle className="h-4 w-4 animate-spin text-slate-400" />
@@ -648,7 +1112,7 @@ export default function PlotLocationPicker({ onSave }) {
                   role="listbox"
                   className="absolute z-[1000] mt-2 max-h-72 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-xl"
                 >
-                  {pastedCoords && (
+                  {pastedCoordinates && (
                     <li>
                       <button
                         type="button"
@@ -657,36 +1121,45 @@ export default function PlotLocationPicker({ onSave }) {
                       >
                         <Crosshair className="h-4 w-4 shrink-0 text-emerald-700" />
                         <span className="text-xs text-slate-700">
-                          Go to {pastedCoords[0].toFixed(6)}, {pastedCoords[1].toFixed(6)}
+                          Move to {pastedCoordinates[0].toFixed(6)},{" "}
+                          {pastedCoordinates[1].toFixed(6)}
                         </span>
                       </button>
                     </li>
                   )}
 
-                  {!pastedCoords && query.trim().length < MIN_CHARS && recent.length > 0 && (
-                    <>
-                      <li className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-400">
-                        <History className="h-3.5 w-3.5" /> Recent searches
-                      </li>
-                      {recent.map((item) => (
-                        <SuggestionRow key={item.id} item={item} onPick={chooseSuggestion} />
-                      ))}
-                    </>
-                  )}
+                  {!pastedCoordinates &&
+                    query.trim().length < MIN_SEARCH_LENGTH &&
+                    recentSearches.length > 0 && (
+                      <>
+                        <li className="px-3 py-2 text-xs font-semibold text-slate-400">
+                          Recent searches
+                        </li>
+                        {recentSearches.map((item) => (
+                          <SuggestionItem
+                            key={item.id}
+                            item={item}
+                            query={query}
+                            onSelect={selectSuggestion}
+                          />
+                        ))}
+                      </>
+                    )}
 
-                  {suggestions.map((item, i) => (
-                    <SuggestionRow
+                  {suggestions.map((item, index) => (
+                    <SuggestionItem
                       key={item.id}
                       item={item}
-                      active={i === activeIndex}
                       query={query}
-                      onPick={chooseSuggestion}
+                      active={index === activeIndex}
+                      onSelect={selectSuggestion}
                     />
                   ))}
 
                   {queryReady && !searchLoading && suggestions.length === 0 && (
                     <li className="px-3 py-2 text-xs text-slate-500">
-                      No quick matches. Try more results, or add a village, taluka or PIN code.
+                      No quick matches. Try searching by area, city, or PIN
+                      code.
                     </li>
                   )}
 
@@ -694,7 +1167,7 @@ export default function PlotLocationPicker({ onSave }) {
                     <li className="border-t border-slate-100 p-1">
                       <button
                         type="button"
-                        onClick={runMoreSearch}
+                        onClick={() => searchMoreResults()}
                         disabled={moreLoading}
                         className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-xs font-semibold text-emerald-800 hover:bg-emerald-50 disabled:opacity-60"
                       >
@@ -710,23 +1183,27 @@ export default function PlotLocationPicker({ onSave }) {
                 </ul>
               )}
             </div>
-            {!searchLoading &&
-              debouncedQuery.trim().length >= MIN_CHARS &&
-              !pastedCoords &&
-              suggestions.length === 0 &&
-              !open && (
-                <p className="mt-2 text-xs text-amber-700">
-                  No matches. Try a nearby village, taluka or PIN code.
-                </p>
-              )}
 
             <div className="mb-3 mt-4 flex flex-wrap items-center justify-between gap-3">
               <span className="text-xs text-slate-500">
-                Click the map or drag the marker to fine-tune the pin.
+                Click the map or drag the marker to fine-tune the location.
               </span>
+
               <div className="flex items-center gap-2">
-                <LayerButton active={!satellite} onClick={() => setSatellite(false)} icon={MapIcon} label="Map" />
-                <LayerButton active={satellite} onClick={() => setSatellite(true)} icon={Satellite} label="Satellite" />
+                <LayerButton
+                  active={!satellite}
+                  onClick={() => setSatellite(false)}
+                  icon={MapIcon}
+                >
+                  Map
+                </LayerButton>
+                <LayerButton
+                  active={satellite}
+                  onClick={() => setSatellite(true)}
+                  icon={Satellite}
+                >
+                  Satellite
+                </LayerButton>
                 <button
                   type="button"
                   onClick={useMyLocation}
@@ -739,178 +1216,204 @@ export default function PlotLocationPicker({ onSave }) {
               </div>
             </div>
 
-            <div className="h-[300px] overflow-hidden rounded-xl border border-slate-200 sm:h-[380px]">
-              <MapContainer center={DEFAULT_POSITION} zoom={13} scrollWheelZoom className="h-full w-full">
-                <TileLayer key={satellite ? "sat" : "street"} attribution={tileAttribution} url={tileUrl} maxZoom={19} />
-                <MapClickHandler onPick={(c) => movePin(c)} />
+            <div className="relative h-[300px] overflow-hidden rounded-xl border border-slate-200 sm:h-[380px]">
+              <MapContainer
+                center={position}
+                zoom={13}
+                scrollWheelZoom
+                className="h-full w-full"
+              >
+                <TileLayer
+                  key={satellite ? "satellite" : "street"}
+                  attribution={tileAttribution}
+                  url={tileUrl}
+                  maxZoom={19}
+                />
+
+                <MapClickHandler
+                  onPick={(coordinates) => movePin(coordinates)}
+                />
                 <MapFlyTo target={flyTarget} />
+
                 <Marker
                   position={position}
                   icon={markerIcon}
                   draggable
                   eventHandlers={{
-                    dragend(e) {
-                      const p = e.target.getLatLng();
-                      movePin([p.lat, p.lng]);
+                    dragend(event) {
+                      const point = event.target.getLatLng();
+                      movePin([point.lat, point.lng]);
                     },
                   }}
                 />
               </MapContainer>
+              {projectLocationLoading && (
+                <div className="absolute inset-0 z-[500] flex items-center justify-center bg-white/70">
+                  <div className="flex items-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-lg">
+                    <LoaderCircle className="h-5 w-5 animate-spin text-emerald-700" />
+                    Loading project location...
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
               <CoordinateCard label="Latitude" value={position[0].toFixed(7)} />
-              <CoordinateCard label="Longitude" value={position[1].toFixed(7)} />
+              <CoordinateCard
+                label="Longitude"
+                value={position[1].toFixed(7)}
+              />
             </div>
 
             <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2">
-              <button type="button" onClick={copyCoordinates} className="inline-flex items-center gap-2 text-xs font-semibold text-emerald-800 hover:text-emerald-950">
-                <Copy className="h-3.5 w-3.5" /> Copy coordinates
+              <button
+                type="button"
+                onClick={copyCoordinates}
+                className="inline-flex items-center gap-2 text-xs font-semibold text-emerald-800 hover:text-emerald-950"
+              >
+                <Copy className="h-3.5 w-3.5" />
+                Copy coordinates
               </button>
-              <a href={googleMapsUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 text-xs font-semibold text-emerald-800 hover:text-emerald-950">
-                <ExternalLink className="h-3.5 w-3.5" /> Open in Google Maps
+
+              <a
+                href={googleMapsUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-2 text-xs font-semibold text-emerald-800 hover:text-emerald-950"
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+                Open in Google Maps
               </a>
             </div>
 
-            <div className="mt-5 flex items-center justify-between">
-              <label htmlFor="address" className="block text-xs font-semibold text-slate-700">
-                Address
+            <div className="mt-5 flex items-center justify-between gap-3">
+              <label
+                htmlFor="project-address"
+                className="block text-xs font-semibold text-slate-700"
+              >
+                Project address <span className="text-rose-600">*</span>
               </label>
+
               <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-500">
                 <input
                   type="checkbox"
                   checked={autoAddress}
-                  onChange={(e) => setAutoAddress(e.target.checked)}
+                  onChange={(event) => setAutoAddress(event.target.checked)}
                   className="h-3.5 w-3.5 accent-emerald-700"
                 />
-                Fill address when the pin moves
+                Auto-fill when pin moves
               </label>
             </div>
+
             <div className="relative mt-2">
               <textarea
-                id="address"
+                id="project-address"
                 rows={3}
                 value={address}
-                onChange={(e) => setAddress(e.target.value)}
-                placeholder="Move the pin to fill this automatically, or type it"
+                onChange={(event) => setAddress(event.target.value)}
+                placeholder="Move the pin to find an address, or enter it manually"
                 className="w-full resize-y rounded-xl border border-slate-200 px-3.5 py-3 text-sm leading-6 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
               />
-              {addressLoading && <LoaderCircle className="absolute right-3 top-3 h-4 w-4 animate-spin text-slate-400" />}
+
+              {addressLoading && (
+                <LoaderCircle className="absolute right-3 top-3 h-4 w-4 animate-spin text-slate-400" />
+              )}
             </div>
+
             <button
               type="button"
               onClick={() => lookupAddress(position)}
               disabled={addressLoading}
               className="mt-2 inline-flex items-center gap-2 text-xs font-semibold text-emerald-800 hover:text-emerald-950 disabled:opacity-60"
             >
-              <Navigation className="h-3.5 w-3.5" /> Get address for this pin
+              <Navigation className="h-3.5 w-3.5" />
+              Get address for this pin
             </button>
-            <p className="mt-2 text-xs leading-5 text-slate-400">
-              Addresses come from map data and may describe a nearby locality, not the official plot boundary.
-            </p>
 
-            {message && (
-              <div
-                role="status"
-                className={`mt-4 flex items-start gap-2 rounded-xl px-3.5 py-3 text-xs leading-5 ${
-                  messageType === "success"
-                    ? "bg-emerald-50 text-emerald-800"
-                    : messageType === "warning"
-                      ? "bg-amber-50 text-amber-800"
-                      : "bg-slate-100 text-slate-700"
-                }`}
-              >
-                {messageType === "warning" ? (
-                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                ) : (
-                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-                )}
-                <span>{message}</span>
-              </div>
-            )}
+            <p className="mt-2 text-xs leading-5 text-slate-400">
+              Map addresses may identify a nearby locality rather than an
+              official property boundary. Verify the address before saving.
+            </p>
 
             <div className="mt-6 flex flex-col gap-3 sm:flex-row">
               <button
                 type="submit"
-                className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-800 focus:outline-none focus:ring-4 focus:ring-emerald-700/20"
+                disabled={
+                  saving ||
+                  projectsLoading ||
+                  projectLocationLoading ||
+                  !projectId
+                }
+                className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-800 focus:outline-none focus:ring-4 focus:ring-emerald-700/20 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                <Save className="h-4 w-4" /> Save plot location
+                {saving ? (
+                  <>
+                    <LoaderCircle className="h-4 w-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save className="h-4 w-4" />
+                    Save project location
+                  </>
+                )}
               </button>
+
               <button
                 type="button"
                 onClick={() => window.print()}
                 className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
               >
-                <Printer className="h-4 w-4" /> Print
+                Print
               </button>
             </div>
           </section>
 
-          {/* ---- summary + saved list ---- */}
-          <aside className="min-w-0 space-y-5 lg:sticky lg:top-6">
+          <aside className="min-w-0 lg:sticky lg:top-6">
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-              <StepHeader n="3" title="Location summary" hint="Review before saving." />
-              <p className="mb-1 text-xs font-bold text-emerald-800">{selectedProject.name}</p>
-              <h3 className="break-words text-2xl font-bold tracking-tight text-slate-950">
-                {plotName.trim() || "Untitled plot"}
-              </h3>
+              <StepHeading
+                number="3"
+                title="Location summary"
+                description="Review the selected project and coordinates before saving."
+              />
+
+              <p className="mb-1 text-xs font-bold text-emerald-800">
+                {selectedProject?.label || "No project selected"}
+              </p>
+
               <p className="mt-2 break-words text-sm leading-6 text-slate-500">
                 {address || "Address not added yet"}
               </p>
+
               <div className="mt-5 divide-y divide-slate-100 border-y border-slate-100">
-                <SummaryRow label="Project ID" value={selectedProject.id} />
+                <SummaryRow
+                  label="Project UUID"
+                  value={selectedProject?.value || "—"}
+                />
                 <SummaryRow label="Latitude" value={position[0].toFixed(7)} />
                 <SummaryRow label="Longitude" value={position[1].toFixed(7)} />
-                <SummaryRow label="Map layer" value={satellite ? "Satellite" : "Street map"} />
+                <SummaryRow
+                  label="Map layer"
+                  value={satellite ? "Satellite" : "Street map"}
+                />
               </div>
-            </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-              <div className="mb-3 flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-slate-900">
-                  Saved plots {savedPlots.length > 0 && <span className="text-slate-400">({savedPlots.length})</span>}
-                </h2>
-                {savedPlots.length > 0 && (
-                  <button type="button" onClick={exportCsv} className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-800 hover:text-emerald-950">
-                    <Download className="h-3.5 w-3.5" /> Export CSV
-                  </button>
-                )}
-              </div>
-              {savedPlots.length === 0 ? (
-                <p className="text-xs leading-5 text-slate-500">
-                  Plots you save appear here. Select one to jump back to its pin.
-                </p>
-              ) : (
-                <ul className="max-h-72 divide-y divide-slate-100 overflow-y-auto">
-                  {savedPlots.map((p) => (
-                    <li key={p.id} className="flex items-start gap-2 py-2.5">
-                      <button type="button" onClick={() => flyToPlot(p)} className="min-w-0 flex-1 text-left">
-                        <div className="truncate text-sm font-semibold text-slate-800">{p.plotName}</div>
-                        <div className="truncate text-xs text-slate-500">
-                          {p.projectName} · {p.latitude.toFixed(5)}, {p.longitude.toFixed(5)}
-                        </div>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => removePlot(p.id)}
-                        aria-label={`Remove ${p.plotName}`}
-                        className="rounded-md p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              <p className="mt-3 text-xs leading-5 text-slate-400">
-                Held in memory until you refresh. Connect the onSave prop to your API to keep them.
-              </p>
+              <a
+                href={googleMapsUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-4 inline-flex items-center gap-2 text-xs font-semibold text-emerald-800 hover:text-emerald-950"
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+                View location in Google Maps
+              </a>
             </div>
           </aside>
         </form>
 
         <footer className="pt-5 text-center text-[10px] text-slate-400">
-          Street map © OpenStreetMap contributors · Satellite imagery © Esri and contributors · Suggestions by Photon, address lookup by Nominatim
+          Street map © OpenStreetMap contributors · Satellite imagery © Esri and
+          contributors · Suggestions by Photon · Address lookup by Nominatim
         </footer>
       </div>
 
@@ -925,91 +1428,5 @@ export default function PlotLocationPicker({ onSave }) {
         }
       `}</style>
     </main>
-  );
-}
-
-/* ------------------------------------------------------------ small parts */
-
-function StepHeader({ n, title, hint }) {
-  return (
-    <div className="mb-5 flex items-start gap-3">
-      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-emerald-50 text-sm font-bold text-emerald-800">
-        {n}
-      </span>
-      <div>
-        <h2 className="font-semibold text-slate-900">{title}</h2>
-        <p className="mt-1 text-xs leading-5 text-slate-500">{hint}</p>
-      </div>
-    </div>
-  );
-}
-
-function LayerButton({ active, onClick, icon: Icon, label }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold transition ${
-        active
-          ? "border-emerald-700 bg-emerald-700 text-white"
-          : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-      }`}
-    >
-      <Icon className="h-3.5 w-3.5" /> {label}
-    </button>
-  );
-}
-
-/** Bolds the part of the title that matches what the user typed. */
-function Highlight({ text, query }) {
-  const q = (query || "").trim();
-  const i = q ? text.toLowerCase().indexOf(q.toLowerCase()) : -1;
-  if (i < 0) return text;
-  return (
-    <>
-      {text.slice(0, i)}
-      <strong className="font-bold text-slate-950">{text.slice(i, i + q.length)}</strong>
-      {text.slice(i + q.length)}
-    </>
-  );
-}
-
-function SuggestionRow({ item, active, query, onPick }) {
-  return (
-    <li role="option" aria-selected={Boolean(active)}>
-      <button
-        type="button"
-        onClick={() => onPick(item)}
-        className={`flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left transition hover:bg-emerald-50 ${
-          active ? "bg-emerald-50" : ""
-        }`}
-      >
-        <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
-        <span className="min-w-0">
-          <span className="block truncate text-sm text-slate-800">
-            <Highlight text={item.title} query={query} />
-          </span>
-          {item.subtitle && <span className="block truncate text-xs text-slate-500">{item.subtitle}</span>}
-        </span>
-      </button>
-    </li>
-  );
-}
-
-function CoordinateCard({ label, value }) {
-  return (
-    <div className="flex min-w-0 flex-col gap-1.5 rounded-xl border border-slate-200 bg-slate-50 p-3">
-      <span className="text-xs font-semibold text-slate-500">{label}</span>
-      <strong className="break-all font-mono text-sm text-slate-800">{value}</strong>
-    </div>
-  );
-}
-
-function SummaryRow({ label, value }) {
-  return (
-    <div className="flex items-start justify-between gap-3 py-3 text-xs">
-      <span className="text-slate-500">{label}</span>
-      <strong className="break-all text-right font-semibold tabular-nums text-slate-800">{value}</strong>
-    </div>
   );
 }
